@@ -125,6 +125,9 @@ type Client struct {
 	sendDone    chan error                     // signals write completion, releases write lock
 	respWait    map[string]*requestOp          // active requests
 	subs        map[string]*ClientSubscription // active subscriptions
+
+	// custom logger, which includes node.id within its context
+	Log log.Logger
 }
 
 type requestOp struct {
@@ -198,6 +201,7 @@ func newClient(initctx context.Context, connectFunc func(context.Context) (net.C
 		sendDone:    make(chan error, 1),
 		respWait:    make(map[string]*requestOp),
 		subs:        make(map[string]*ClientSubscription),
+		Log:         log.New(""),
 	}
 	if !isHTTP {
 		go c.dispatch(conn)
@@ -418,7 +422,7 @@ func (c *Client) newMessage(method string, paramsIn ...interface{}) (*jsonrpcMes
 func (c *Client) send(ctx context.Context, op *requestOp, msg interface{}) error {
 	select {
 	case c.requestOp <- op:
-		log.Trace("", "msg", log.Lazy{Fn: func() string {
+		c.Log.Trace("", "msg", log.Lazy{Fn: func() string {
 			return fmt.Sprint("sending ", msg)
 		}})
 		err := c.write(ctx, msg)
@@ -455,7 +459,7 @@ func (c *Client) write(ctx context.Context, msg interface{}) error {
 func (c *Client) reconnect(ctx context.Context) error {
 	newconn, err := c.connectFunc(ctx)
 	if err != nil {
-		log.Trace(fmt.Sprintf("reconnect failed: %v", err))
+		c.Log.Trace(fmt.Sprintf("reconnect failed: %v", err))
 		return err
 	}
 	select {
@@ -506,17 +510,17 @@ func (c *Client) dispatch(conn net.Conn) {
 			for _, msg := range batch {
 				switch {
 				case msg.isNotification():
-					log.Trace("", "msg", log.Lazy{Fn: func() string {
+					c.Log.Trace("", "msg", log.Lazy{Fn: func() string {
 						return fmt.Sprint("<-readResp: notification ", msg)
 					}})
 					c.handleNotification(msg)
 				case msg.isResponse():
-					log.Trace("", "msg", log.Lazy{Fn: func() string {
+					c.Log.Trace("", "msg", log.Lazy{Fn: func() string {
 						return fmt.Sprint("<-readResp: response ", msg)
 					}})
 					c.handleResponse(msg)
 				default:
-					log.Debug("", "msg", log.Lazy{Fn: func() string {
+					c.Log.Debug("", "msg", log.Lazy{Fn: func() string {
 						return fmt.Sprint("<-readResp: dropping weird message", msg)
 					}})
 					// TODO: maybe close

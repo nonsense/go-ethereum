@@ -228,6 +228,7 @@ func (n *ExecNode) Start(snapshots map[string][]byte) (err error) {
 		return fmt.Errorf("error getting node info: %s", err)
 	}
 	n.client = client
+	n.client.Log = log.New("node.id", n.ID.String()[:8])
 	n.wsAddr = wsAddr
 	n.Info = &info
 

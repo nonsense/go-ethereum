@@ -232,7 +232,7 @@ func (n NodeID) Bytes() []byte {
 
 // NodeID prints as a long hexadecimal number.
 func (n NodeID) String() string {
-	return fmt.Sprintf("%x", n[:])
+	return (fmt.Sprintf("%x", n[:]))
 }
 
 // The Go syntax representation of a NodeID is a call to HexID.

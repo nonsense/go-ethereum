@@ -102,7 +102,7 @@ func (s *SimAdapter) NewNode(config *NodeConfig) (Node, error) {
 			EnableMsgEvents: true,
 		},
 		NoUSB:  true,
-		Logger: log.New("node.id", id.String()),
+		Logger: log.New("node.id", id.String()[:8]),
 	})
 	if err != nil {
 		return nil, err
@@ -153,7 +153,9 @@ func (s *SimAdapter) DialRPC(id discover.NodeID) (*rpc.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return rpc.DialInProc(handler), nil
+	c := rpc.DialInProc(handler)
+	c.Log = log.New("node.id", id.String()[:8])
+	return c, nil
 }
 
 // GetNode returns the node with the given ID if it exists
@@ -286,6 +288,7 @@ func (self *SimNode) Start(snapshots map[string][]byte) error {
 
 	self.lock.Lock()
 	self.client = rpc.DialInProc(handler)
+	self.client.Log = log.New("node.id", self.ID.String()[:8])
 	self.lock.Unlock()
 
 	return nil
