@@ -19,13 +19,13 @@ package simulations
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"net/http"
 	"os"
-	"strconv"
-	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,11 +35,20 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
+var (
+	nodecount = flag.Int("nodecount", 16, "number of nodes")
+	msgs      = flag.Int("msgs", 5000, "numner of messages to send")
+	adapter   = flag.String("adapter", "sock", "adapter type (sim, sock, exec)")
+)
+
 func init() {
+	flag.Parse()
+
 	// configure logger
 	//loglevel := log.LvlTrace
-	loglevel := log.LvlDebug
+	//loglevel := log.LvlDebug
 	//loglevel := log.LvlInfo
+	loglevel := log.LvlCrit
 
 	hs := log.StreamHandler(os.Stdout, log.TerminalFormat(true))
 	hf := log.LvlFilterHandler(loglevel, hs)
@@ -48,52 +57,46 @@ func init() {
 }
 
 func TestSimpleNetwork(t *testing.T) {
-	go func() {
-		fmt.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
+	t.Logf("simple network test: %d, %d, %s", *nodecount, *msgs, *adapter)
 
-	t.Run("8/50/exec", testSimpleNetwork)
-}
-
-func testSimpleNetwork(t *testing.T) {
-	nodecount, msgcount, adapterType := parseName(t.Name())
-
-	log.Info("simple network test", "nodecount", nodecount, "msgcount", msgcount)
-
-	nodes := make([]discover.NodeID, nodecount)
-	rpcs := make(map[discover.NodeID]*rpc.Client, nodecount)
+	nodes := make([]discover.NodeID, *nodecount)
+	rpcs := make(map[discover.NodeID]*rpc.Client, *nodecount)
 
 	trigger := make(chan discover.NodeID)
 
 	// setup services
 	services := adapters.Services{
-		"test": newTestService,
+		"test": newMultiplyService,
 	}
 
 	// setup adapter
-	var adapter adapters.NodeAdapter
-	if adapterType == "exec" {
+	var a adapters.NodeAdapter
+	if *adapter == "exec" {
 		dirname, err := ioutil.TempDir(".", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		adapters.RegisterServices(services)
-		adapter = adapters.NewExecAdapter(dirname)
-	} else if adapterType == "sock" {
-		adapter = adapters.NewSocketAdapter(services)
-	} else if adapterType == "sim" {
-		adapter = adapters.NewSimAdapter(services)
+		a = adapters.NewExecAdapter(dirname)
+	} else if *adapter == "sock" {
+		a = adapters.NewSocketAdapter(services)
+	} else if *adapter == "sim" {
+		a = adapters.NewSimAdapter(services)
 	}
 
+	time.Sleep(1000 * time.Millisecond)
+
 	// setup simulations network
-	net := NewNetwork(adapter, &NetworkConfig{
+	net := NewNetwork(a, &NetworkConfig{
 		ID:             "0",
 		DefaultService: "test",
 	})
 	defer net.Shutdown()
 
+	time.Sleep(1000 * time.Millisecond)
+
 	// load network snapshot
-	f, err := os.Open(fmt.Sprintf("testdata/snapshot_%d.json", nodecount))
+	f, err := os.Open(fmt.Sprintf("testdata/snapshot_%d.json", *nodecount))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +113,8 @@ func testSimpleNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	time.Sleep(1000 * time.Millisecond)
 
 	// triggers
 	triggerChecks := func(trigger chan discover.NodeID, id discover.NodeID, rpcclient *rpc.Client) error {
@@ -147,35 +152,50 @@ func testSimpleNetwork(t *testing.T) {
 		}
 	}
 
+	// correct results == sent messages
+	var correctResults uint64
+	var wg sync.WaitGroup
+	wg.Add(*msgs)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
 	// send messages
-	for i := 0; i < int(msgcount); i++ {
-		sendnodeidx := rand.Intn(int(nodecount))
-		recvnodeidx := rand.Intn(int(nodecount - 1))
+	for i := 0; i < *msgs; i++ {
+		sendnodeidx := rand.Intn(*nodecount)
+		recvnodeidx := rand.Intn(*nodecount - 1)
 		if recvnodeidx >= sendnodeidx {
 			recvnodeidx++
 		}
 
 		go func() {
 			// call some RPC methods
-			if err := rpcs[nodes[sendnodeidx]].Call(nil, "test_add", 10); err != nil {
-				t.Fatalf("error calling RPC method: %s", err)
+			var resp int64
+			req := rand.Int63n(100000)
+			if err := rpcs[nodes[sendnodeidx]].Call(&resp, "test_multiplyByThree", req); err != nil {
+				//t.Fatalf("error calling RPC method: %s", err)
+				wg.Done()
+				return
 			}
-			var result int64
-			if err := rpcs[nodes[sendnodeidx]].Call(&result, "test_get"); err != nil {
-				t.Fatalf("error calling RPC method: %s", err)
+			if req != resp/3 {
+				//t.Fatalf("faulty rpc handler, requested: %d, got: %d", req, resp)
+				wg.Done()
+				return
 			}
-			if result%10 != 0 {
-				t.Fatalf("expected result to be 10 or 20, got %d", result)
-			}
+
+			atomic.AddUint64(&correctResults, 1)
+			wg.Done()
 		}()
 	}
 
 	// count triggers
 	finalmsgcount := 0
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 outer:
-	for i := 0; i < int(msgcount); i++ {
+	for i := 0; i < *msgs; i++ {
 		select {
 		case <-trigger:
 			finalmsgcount++
@@ -185,20 +205,22 @@ outer:
 		}
 	}
 
-	t.Logf("%d of %d messages received", finalmsgcount, msgcount)
-
-	if finalmsgcount != int(msgcount) {
-		t.Fatalf("%d messages were not received", int(msgcount)-finalmsgcount)
+	// wait for correct message counters
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
 	}
 
-}
+	correctResultsFinal := atomic.LoadUint64(&correctResults)
 
-func parseName(name string) (int64, int64, string) {
-	paramstring := strings.Split(name, "/")
+	t.Logf("%d of %d messages received", finalmsgcount, *msgs)
+	t.Logf("%d of correct results received", correctResultsFinal)
 
-	nodecount, _ := strconv.ParseInt(paramstring[1], 10, 0)
-	msgcount, _ := strconv.ParseInt(paramstring[2], 10, 0)
-	adapter := paramstring[3]
+	if finalmsgcount != *msgs {
+		t.Fatalf("%d messages were not received", *msgs-finalmsgcount)
+	}
 
-	return nodecount, msgcount, adapter
+	if int(correctResultsFinal) != *msgs {
+		t.Fatalf("%d correct results were not received", *msgs-int(correctResultsFinal))
+	}
 }
