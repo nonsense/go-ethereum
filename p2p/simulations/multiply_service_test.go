@@ -71,7 +71,7 @@ func (t *multiplyService) peer(id discover.NodeID) *testPeer {
 func (t *multiplyService) Protocols() []p2p.Protocol {
 	return []p2p.Protocol{
 		{
-			Name:    "test",
+			Name:    "multiply",
 			Version: 1,
 			Length:  3,
 			Run:     t.RunTest,
@@ -93,7 +93,7 @@ func (t *multiplyService) Protocols() []p2p.Protocol {
 
 func (t *multiplyService) APIs() []rpc.API {
 	return []rpc.API{{
-		Namespace: "test",
+		Namespace: "multiply",
 		Version:   "1.0",
 		Service: &MultiplyAPI{
 			state:     &t.state,

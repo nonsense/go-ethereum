@@ -41,8 +41,15 @@ var (
 	adapter   = flag.String("adapter", "sock", "adapter type (sim, sock, exec)")
 )
 
+// setup services
+var services = adapters.Services{
+	"multiply": newMultiplyService,
+}
+
 func init() {
 	flag.Parse()
+
+	adapters.RegisterServices(services)
 
 	// configure logger
 	//loglevel := log.LvlTrace
@@ -64,11 +71,6 @@ func TestSimpleNetwork(t *testing.T) {
 
 	trigger := make(chan discover.NodeID)
 
-	// setup services
-	services := adapters.Services{
-		"test": newMultiplyService,
-	}
-
 	// setup adapter
 	var a adapters.NodeAdapter
 	if *adapter == "exec" {
@@ -76,7 +78,6 @@ func TestSimpleNetwork(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		adapters.RegisterServices(services)
 		a = adapters.NewExecAdapter(dirname)
 	} else if *adapter == "sock" {
 		a = adapters.NewSocketAdapter(services)
@@ -89,7 +90,7 @@ func TestSimpleNetwork(t *testing.T) {
 	// setup simulations network
 	net := NewNetwork(a, &NetworkConfig{
 		ID:             "0",
-		DefaultService: "test",
+		DefaultService: "multiply",
 	})
 	defer net.Shutdown()
 
@@ -121,7 +122,7 @@ func TestSimpleNetwork(t *testing.T) {
 		eventC := make(chan int64)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		sub, err := rpcclient.Subscribe(ctx, "test", eventC, "events")
+		sub, err := rpcclient.Subscribe(ctx, "multiply", eventC, "events")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -174,7 +175,7 @@ func TestSimpleNetwork(t *testing.T) {
 			// call some RPC methods
 			var resp int64
 			req := rand.Int63n(100000)
-			if err := rpcs[nodes[sendnodeidx]].Call(&resp, "test_multiplyByThree", req); err != nil {
+			if err := rpcs[nodes[sendnodeidx]].Call(&resp, "multiply_multiplyByThree", req); err != nil {
 				//t.Fatalf("error calling RPC method: %s", err)
 				wg.Done()
 				return
