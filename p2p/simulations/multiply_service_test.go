@@ -18,8 +18,6 @@ package simulations
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/node"
@@ -33,39 +31,13 @@ import (
 // and APIs which are useful for testing nodes in a simulation network
 type multiplyService struct {
 	id discover.NodeID
-
-	// peerCount is incremented once a peer handshake has been performed
-	peerCount int64
-
-	peers    map[discover.NodeID]*testPeer
-	peersMtx sync.Mutex
-
-	// state stores []byte which is used to test creating and loading
-	// snapshots
-	state atomic.Value
 }
 
 func newMultiplyService(ctx *adapters.ServiceContext) (node.Service, error) {
 	svc := &multiplyService{
-		id:    ctx.Config.ID,
-		peers: make(map[discover.NodeID]*testPeer),
+		id: ctx.Config.ID,
 	}
-	svc.state.Store(ctx.Snapshot)
 	return svc, nil
-}
-
-func (t *multiplyService) peer(id discover.NodeID) *testPeer {
-	t.peersMtx.Lock()
-	defer t.peersMtx.Unlock()
-	if peer, ok := t.peers[id]; ok {
-		return peer
-	}
-	peer := &testPeer{
-		testReady: make(chan struct{}),
-		dumReady:  make(chan struct{}),
-	}
-	t.peers[id] = peer
-	return peer
 }
 
 func (t *multiplyService) Protocols() []p2p.Protocol {
@@ -76,18 +48,6 @@ func (t *multiplyService) Protocols() []p2p.Protocol {
 			Length:  3,
 			Run:     t.RunTest,
 		},
-		{
-			Name:    "dum",
-			Version: 1,
-			Length:  1,
-			Run:     t.RunDum,
-		},
-		{
-			Name:    "prb",
-			Version: 1,
-			Length:  1,
-			Run:     t.RunPrb,
-		},
 	}
 }
 
@@ -95,10 +55,7 @@ func (t *multiplyService) APIs() []rpc.API {
 	return []rpc.API{{
 		Namespace: "multiply",
 		Version:   "1.0",
-		Service: &MultiplyAPI{
-			state:     &t.state,
-			peerCount: &t.peerCount,
-		},
+		Service:   &MultiplyAPI{},
 	}}
 }
 
@@ -125,8 +82,6 @@ func (t *multiplyService) handshake(rw p2p.MsgReadWriter, code uint64) error {
 }
 
 func (t *multiplyService) RunTest(p *p2p.Peer, rw p2p.MsgReadWriter) error {
-	peer := t.peer(p.ID())
-
 	// perform three handshakes with three different message codes,
 	// used to test message sending and filtering
 	if err := t.handshake(rw, 2); err != nil {
@@ -139,13 +94,6 @@ func (t *multiplyService) RunTest(p *p2p.Peer, rw p2p.MsgReadWriter) error {
 		return err
 	}
 
-	// close the testReady channel so that other protocols can run
-	close(peer.testReady)
-
-	// track the peer
-	atomic.AddInt64(&t.peerCount, 1)
-	defer atomic.AddInt64(&t.peerCount, -1)
-
 	// block until the peer is dropped
 	for {
 		_, err := rw.ReadMsg()
@@ -153,80 +101,18 @@ func (t *multiplyService) RunTest(p *p2p.Peer, rw p2p.MsgReadWriter) error {
 			return err
 		}
 	}
-}
-
-func (t *multiplyService) RunDum(p *p2p.Peer, rw p2p.MsgReadWriter) error {
-	peer := t.peer(p.ID())
-
-	// wait for the test protocol to perform its handshake
-	<-peer.testReady
-
-	// perform a handshake
-	if err := t.handshake(rw, 0); err != nil {
-		return err
-	}
-
-	// close the dumReady channel so that other protocols can run
-	close(peer.dumReady)
-
-	// block until the peer is dropped
-	for {
-		_, err := rw.ReadMsg()
-		if err != nil {
-			return err
-		}
-	}
-}
-func (t *multiplyService) RunPrb(p *p2p.Peer, rw p2p.MsgReadWriter) error {
-	peer := t.peer(p.ID())
-
-	// wait for the dum protocol to perform its handshake
-	<-peer.dumReady
-
-	// perform a handshake
-	if err := t.handshake(rw, 0); err != nil {
-		return err
-	}
-
-	// block until the peer is dropped
-	for {
-		_, err := rw.ReadMsg()
-		if err != nil {
-			return err
-		}
-	}
-}
-
-func (t *multiplyService) Snapshot() ([]byte, error) {
-	return t.state.Load().([]byte), nil
 }
 
 // MultiplyAPI provides a test API to:
-// * get the peer count
-// * get and set an arbitrary state byte slice
-// * get and increment a counter
-// * subscribe to counter increment events
+// * multiply number by 3
+// * subscribe to multiply API call events
 type MultiplyAPI struct {
-	state     *atomic.Value
-	peerCount *int64
-	feed      event.Feed
-}
-
-func (t *MultiplyAPI) PeerCount() int64 {
-	return atomic.LoadInt64(t.peerCount)
+	feed event.Feed
 }
 
 func (t *MultiplyAPI) MultiplyByThree(delta int64) int64 {
 	t.feed.Send(delta)
 	return delta * 3
-}
-
-func (t *MultiplyAPI) GetState() []byte {
-	return t.state.Load().([]byte)
-}
-
-func (t *MultiplyAPI) SetState(state []byte) {
-	t.state.Store(state)
 }
 
 func (t *MultiplyAPI) Events(ctx context.Context) (*rpc.Subscription, error) {
