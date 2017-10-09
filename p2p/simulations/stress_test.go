@@ -85,16 +85,12 @@ func TestSimpleNetwork(t *testing.T) {
 		a = adapters.NewSimAdapter(services)
 	}
 
-	time.Sleep(1000 * time.Millisecond)
-
 	// setup simulations network
 	net := NewNetwork(a, &NetworkConfig{
 		ID:             "0",
 		DefaultService: "multiply",
 	})
 	defer net.Shutdown()
-
-	time.Sleep(1000 * time.Millisecond)
 
 	// load network snapshot
 	f, err := os.Open(fmt.Sprintf("testdata/snapshot_%d.json", *nodecount))
@@ -115,7 +111,7 @@ func TestSimpleNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// triggers
 	triggerChecks := func(trigger chan discover.NodeID, id discover.NodeID, rpcclient *rpc.Client) error {
