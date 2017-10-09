@@ -98,7 +98,9 @@ type Pss struct {
 	paddingByteSize int
 
 	// keys and peers
-	pubKeyPool                 map[string]map[whisper.TopicType]*pssPeer // mapping of hex public keys to peer address by topic.
+	pubKeyPool   map[string]map[whisper.TopicType]*pssPeer // mapping of hex public keys to peer address by topic.
+	pubKeyPoolMu sync.Mutex
+
 	symKeyPool                 map[string]map[whisper.TopicType]*pssPeer // mapping of symkeyids to peer address by topic.
 	symKeyDecryptCache         []*string                                 // fast lookup of symkeys recently used for decryption; last used is on top of stack
 	symKeyDecryptCacheCursor   int                                       // modular cursor pointing to last used, wraps on symKeyDecryptCache array
@@ -376,10 +378,14 @@ func (self *Pss) SetPeerPublicKey(pubkey *ecdsa.PublicKey, topic whisper.TopicTy
 	psp := &pssPeer{
 		address: address,
 	}
+
+	self.pubKeyPoolMu.Lock()
 	if _, ok := self.pubKeyPool[pubkeyid]; ok == false {
 		self.pubKeyPool[pubkeyid] = make(map[whisper.TopicType]*pssPeer)
 	}
 	self.pubKeyPool[pubkeyid][topic] = psp
+	self.pubKeyPoolMu.Unlock()
+
 	log.Trace("added pubkey", "pubkeyid", pubkeyid, "topic", topic, "address", common.ToHex(*address))
 	return nil
 }
@@ -491,7 +497,11 @@ func (self *Pss) processAsym(envelope *whisper.Envelope) (*whisper.ReceivedMessa
 		return nil, "", nil, errors.New("invalid message")
 	}
 	pubkeyid := common.ToHex(crypto.FromECDSAPub(recvmsg.Src))
+
+	self.pubKeyPoolMu.Lock()
 	from := self.pubKeyPool[pubkeyid][envelope.Topic].address
+	self.pubKeyPoolMu.Unlock()
+
 	return recvmsg, pubkeyid, from, nil
 }
 
@@ -555,7 +565,9 @@ func (self *Pss) SendAsym(pubkeyid string, topic whisper.TopicType, msg []byte) 
 	if pubkey == nil {
 		return errors.New(fmt.Sprintf("Invalid public key id %x", pubkey))
 	}
+	self.pubKeyPoolMu.Lock()
 	psp := self.pubKeyPool[pubkeyid][topic]
+	self.pubKeyPoolMu.Unlock()
 	go func() {
 		self.send(*psp.address, topic, msg, true, common.FromHex(pubkeyid))
 	}()
