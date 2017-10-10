@@ -93,7 +93,8 @@ func (c *StandardCounter) Clear() {
 
 // Count returns the current count.
 func (c *StandardCounter) Count() int64 {
-	return atomic.LoadInt64(&c.count)
+	//return atomic.LoadInt64(&c.count)
+	return atomic.SwapInt64(&c.count, 0)
 }
 
 // Dec decrements the counter by the given amount.
