@@ -483,6 +483,22 @@ func testAsymSend(t *testing.T) {
 	}
 }
 
+type Job struct {
+	Msg      []byte
+	SendNode discover.NodeID
+	RecvNode discover.NodeID
+}
+
+func worker(id int, jobs <-chan Job, rpcs map[discover.NodeID]*rpc.Client, pubkeys map[discover.NodeID][]byte, hextopic string) {
+	for j := range jobs {
+		err := rpcs[j.SendNode].Call(nil, "pss_sendAsym", common.ToHex(pubkeys[j.RecvNode]), hextopic, j.Msg)
+		if err != nil {
+			panic(err)
+			//t.Fatal(err)
+		}
+	}
+}
+
 // params in run name:
 // nodes/msgs/addrbytes/adaptertype
 // if adaptertype is exec uses execadapter, simadapter otherwise
@@ -611,7 +627,13 @@ func testNetwork(t *testing.T) {
 		}
 	}
 
-	messagedelayhigh := 0
+	jobs := make(chan Job, 100)
+
+	// setup workers
+	for w := 1; w <= 15; w++ {
+		go worker(w, jobs, rpcs, pubkeys, hextopic)
+	}
+
 	for i := 0; i < int(msgcount); i++ {
 		sendnodeidx := rand.Intn(int(nodecount))
 		recvnodeidx := rand.Intn(int(nodecount - 1))
@@ -632,30 +654,16 @@ func testNetwork(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		messagedelay := rand.Intn(messagedelayvarianceusec)
-		if messagedelay > messagedelayhigh {
-			messagedelayhigh = messagedelay
-		}
-		messagedelayduration, err := time.ParseDuration(fmt.Sprintf("%dus", messagedelay))
-		if err != nil {
-			t.Fatal(err)
-		}
-		go func(msg []byte) {
-			time.Sleep(messagedelayduration)
-			err = rpcs[nodes[sendnodeidx]].Call(nil, "pss_sendAsym", common.ToHex(pubkeys[nodes[recvnodeidx]]), hextopic, msg)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}(sentmsgs[i])
-	}
 
-	timeout, err := time.ParseDuration(fmt.Sprintf("%dus", 60000000+messagedelayhigh))
-	if err != nil {
-		t.Fatal(err)
+		jobs <- Job{
+			Msg:      sentmsgs[i],
+			SendNode: nodes[sendnodeidx],
+			RecvNode: nodes[recvnodeidx],
+		}
 	}
 
 	finalmsgcount := 0
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 outer:
 	for i := 0; i < int(msgcount); i++ {
