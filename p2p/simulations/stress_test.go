@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
 	"github.com/ethereum/go-ethereum/rpc"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 var (
@@ -52,10 +54,10 @@ func init() {
 	adapters.RegisterServices(services)
 
 	// configure logger
-	//loglevel := log.LvlTrace
+	loglevel := log.LvlTrace
 	//loglevel := log.LvlDebug
 	//loglevel := log.LvlInfo
-	loglevel := log.LvlCrit
+	//loglevel := log.LvlCrit
 
 	hs := log.StreamHandler(os.Stdout, log.TerminalFormat(true))
 	hf := log.LvlFilterHandler(loglevel, hs)
@@ -64,6 +66,10 @@ func init() {
 }
 
 func TestSimpleNetwork(t *testing.T) {
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	t.Logf("simple network test: %d, %d, %s", *nodecount, *msgs, *adapter)
 
 	nodes := make([]discover.NodeID, *nodecount)
@@ -127,6 +133,7 @@ func TestSimpleNetwork(t *testing.T) {
 			for {
 				select {
 				case <-eventC:
+					metrics.GetOrRegisterCounter("trigger", nil).Inc(1)
 					trigger <- id
 				case <-sub.Err():
 					return
@@ -220,4 +227,6 @@ outer:
 	if int(correctResultsFinal) != *msgs {
 		t.Fatalf("%d correct results were not received", *msgs-int(correctResultsFinal))
 	}
+
+	metrics.GraphiteOnce(gc)
 }
