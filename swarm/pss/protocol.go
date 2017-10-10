@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/protocols"
 	"github.com/ethereum/go-ethereum/rlp"
 	whisper "github.com/ethereum/go-ethereum/whisper/whisperv5"
-	"time"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 // Protocol options to be passed to a new Protocol instance
@@ -110,6 +112,8 @@ func RegisterProtocol(ps *Pss, topic *whisper.TopicType, spec *protocols.Spec, t
 // if adding a new peer fails, or if the message is not a serialized
 // p2p.Msg (which it always will be if it is sent from this object).
 func (self *Protocol) Handle(msg []byte, p *p2p.Peer, asymmetric bool, keyid string) error {
+	metrics.GetOrRegisterCounter("protocol.handle", nil).Inc(1)
+
 	var vrw *PssReadWriter
 	if self.Asymmetric != asymmetric && self.Symmetric == !asymmetric {
 		return errors.New(fmt.Sprintf("invalid protocol encryption"))

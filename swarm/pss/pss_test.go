@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -23,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
@@ -32,7 +32,6 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/network"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	whisper "github.com/ethereum/go-ethereum/whisper/whisperv5"
-	metrics "github.com/rcrowley/go-metrics"
 )
 
 const (
@@ -55,31 +54,11 @@ var (
 var services = newServices()
 
 func init() {
-
 	flag.Parse()
 	rand.Seed(time.Now().Unix())
 
 	adapters.RegisterServices(services)
 	initTest()
-
-	setupMetrics()
-}
-
-var gc metrics.GraphiteConfig
-
-func setupMetrics() {
-	addr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:2003")
-
-	gc = metrics.GraphiteConfig{
-		Addr:          addr,
-		Registry:      metrics.DefaultRegistry,
-		FlushInterval: 500 * time.Millisecond,
-		DurationUnit:  time.Nanosecond,
-		Prefix:        "pss",
-		Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
-	}
-
-	go metrics.GraphiteWithConfig(gc)
 }
 
 func initTest() {
@@ -512,9 +491,10 @@ func TestNetwork(t *testing.T) {
 		fmt.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
-	t.Run("64/100000/4/exec", testNetwork)
+	metrics.SetupTestMetrics("pss")
+	defer metrics.ShutdownTestMetrics()
 
-	metrics.GraphiteOnce(gc)
+	t.Run("8/10000/4/exec", testNetwork)
 }
 
 func testNetwork(t *testing.T) {

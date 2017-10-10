@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
+	ethmetrics "github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -46,6 +47,27 @@ var (
 // setup services
 var services = adapters.Services{
 	"multiply": newMultiplyService,
+}
+
+func worker(id int, jobs <-chan discover.NodeID, rpcs map[discover.NodeID]*rpc.Client, wg *sync.WaitGroup, correctResults *uint64) {
+	for j := range jobs {
+		// call some RPC methods
+		var resp int64
+		req := rand.Int63n(100000)
+		if err := rpcs[j].Call(&resp, "multiply_multiplyByThree", req); err != nil {
+			//t.Fatalf("error calling RPC method: %s", err)
+			wg.Done()
+			return
+		}
+		if req != resp/3 {
+			//t.Fatalf("faulty rpc handler, requested: %d, got: %d", req, resp)
+			wg.Done()
+			return
+		}
+
+		atomic.AddUint64(correctResults, 1)
+		wg.Done()
+	}
 }
 
 func init() {
@@ -66,6 +88,9 @@ func init() {
 }
 
 func TestSimpleNetwork(t *testing.T) {
+	ethmetrics.SetupTestMetrics("pss")
+	defer ethmetrics.ShutdownTestMetrics()
+
 	go func() {
 		fmt.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
@@ -158,6 +183,8 @@ func TestSimpleNetwork(t *testing.T) {
 
 	// correct results == sent messages
 	var correctResults uint64
+
+	// wait group for correctResults
 	var wg sync.WaitGroup
 	wg.Add(*msgs)
 	done := make(chan struct{})
@@ -165,6 +192,14 @@ func TestSimpleNetwork(t *testing.T) {
 		wg.Wait()
 		close(done)
 	}()
+
+	// jobs (discover.NodeID for given rpc client)
+	jobs := make(chan discover.NodeID, 100)
+
+	// setup workers
+	for w := 1; w <= 15; w++ {
+		go worker(w, jobs, rpcs, &wg, &correctResults)
+	}
 
 	// send messages
 	for i := 0; i < *msgs; i++ {
@@ -174,24 +209,7 @@ func TestSimpleNetwork(t *testing.T) {
 			recvnodeidx++
 		}
 
-		go func() {
-			// call some RPC methods
-			var resp int64
-			req := rand.Int63n(100000)
-			if err := rpcs[nodes[sendnodeidx]].Call(&resp, "multiply_multiplyByThree", req); err != nil {
-				//t.Fatalf("error calling RPC method: %s", err)
-				wg.Done()
-				return
-			}
-			if req != resp/3 {
-				//t.Fatalf("faulty rpc handler, requested: %d, got: %d", req, resp)
-				wg.Done()
-				return
-			}
-
-			atomic.AddUint64(&correctResults, 1)
-			wg.Done()
-		}()
+		jobs <- nodes[sendnodeidx]
 	}
 
 	// count triggers
@@ -227,6 +245,4 @@ outer:
 	if int(correctResultsFinal) != *msgs {
 		t.Fatalf("%d correct results were not received", *msgs-int(correctResultsFinal))
 	}
-
-	metrics.GraphiteOnce(gc)
 }

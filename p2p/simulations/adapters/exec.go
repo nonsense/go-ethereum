@@ -37,6 +37,7 @@ import (
 
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
@@ -344,6 +345,9 @@ type execNodeConfig struct {
 // argv[0] being "p2p-node", reading the service / ID from argv[1] / argv[2]
 // and the node config from the _P2P_NODE_CONFIG environment variable
 func execP2PNode() {
+	metrics.SetupTestMetrics("pss")
+	defer metrics.ShutdownTestMetrics()
+
 	glogger := log.NewGlogHandler(log.StreamHandler(os.Stderr, log.LogfmtFormat()))
 	glogger.Verbosity(log.LvlInfo)
 	log.Root().SetHandler(glogger)

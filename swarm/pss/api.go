@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/rpc"
 	whisper "github.com/ethereum/go-ethereum/whisper/whisperv5"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 // Wrapper for receiving pss messages when using the pss API
@@ -35,6 +37,8 @@ func NewAPI(ps *Pss) *API {
 // All incoming messages to the node matching this topic will be encapsulated in the APIMsg
 // struct and sent to the subscriber
 func (pssapi *API) Receive(ctx context.Context, topic whisper.TopicType) (*rpc.Subscription, error) {
+	metrics.GetOrRegisterCounter("api.receive", nil).Inc(1)
+
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return nil, errors.New(fmt.Sprintf("Subscribe not supported"))
