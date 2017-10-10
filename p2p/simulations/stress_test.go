@@ -51,6 +51,7 @@ var services = adapters.Services{
 
 func worker(id int, jobs <-chan discover.NodeID, rpcs map[discover.NodeID]*rpc.Client, wg *sync.WaitGroup, correctResults *uint64) {
 	for j := range jobs {
+		//time.Sleep(1 * time.Millisecond)
 		// call some RPC methods
 		var resp int64
 		req := rand.Int63n(100000)
@@ -76,10 +77,10 @@ func init() {
 	adapters.RegisterServices(services)
 
 	// configure logger
-	loglevel := log.LvlTrace
+	//loglevel := log.LvlTrace
 	//loglevel := log.LvlDebug
 	//loglevel := log.LvlInfo
-	//loglevel := log.LvlCrit
+	loglevel := log.LvlCrit
 
 	hs := log.StreamHandler(os.Stdout, log.TerminalFormat(true))
 	hf := log.LvlFilterHandler(loglevel, hs)

@@ -62,12 +62,12 @@ func init() {
 }
 
 func initTest() {
-	loglevel := log.LvlInfo
-	if *debugflag {
-		loglevel = log.LvlDebug
-	} else if *debugdebugflag {
-		loglevel = log.LvlTrace
-	}
+	//loglevel := log.LvlInfo
+	//if *debugflag {
+	//loglevel = log.LvlDebug
+	//} else if *debugdebugflag {
+	//}
+	loglevel := log.LvlTrace
 
 	psslogmain = log.New("psslog", "*")
 	hs := log.StreamHandler(os.Stderr, log.TerminalFormat(true))
@@ -630,7 +630,7 @@ func testNetwork(t *testing.T) {
 	jobs := make(chan Job, 100)
 
 	// setup workers
-	for w := 1; w <= 15; w++ {
+	for w := 1; w <= 1; w++ {
 		go worker(w, jobs, rpcs, pubkeys, hextopic)
 	}
 

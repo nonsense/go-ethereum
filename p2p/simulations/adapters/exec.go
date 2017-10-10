@@ -442,6 +442,8 @@ func execP2PNode() {
 		<-sigc
 		log.Info("Received SIGTERM, shutting down...")
 
+		time.Sleep(2 * time.Second)
+
 		// shutdown metrics
 		metrics.ShutdownTestMetrics()
 

@@ -52,6 +52,9 @@ func (pssapi *API) Receive(ctx context.Context, topic whisper.TopicType) (*rpc.S
 			Asymmetric: asymmetric,
 			Key:        keyid,
 		}
+
+		metrics.GetOrRegisterCounter("pss_notify", nil).Inc(1)
+
 		if err := notifier.Notify(psssub.ID, apimsg); err != nil {
 			log.Warn(fmt.Sprintf("notification on pss sub topic rpc (sub %v) msg %v failed!", psssub.ID, msg))
 		}

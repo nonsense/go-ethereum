@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
 	"github.com/ethereum/go-ethereum/rpc"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 // multiplyService implements the node.Service interface and provides protocols
@@ -131,6 +132,8 @@ func (t *MultiplyAPI) Events(ctx context.Context) (*rpc.Subscription, error) {
 		for {
 			select {
 			case event := <-events:
+				//case _ = <-events:
+				metrics.GetOrRegisterCounter("multiply_event", nil).Inc(1)
 				notifier.Notify(rpcSub.ID, event)
 			case <-sub.Err():
 				return
