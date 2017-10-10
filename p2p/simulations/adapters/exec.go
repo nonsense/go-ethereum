@@ -346,7 +346,6 @@ type execNodeConfig struct {
 // and the node config from the _P2P_NODE_CONFIG environment variable
 func execP2PNode() {
 	metrics.SetupTestMetrics("pss")
-	defer metrics.ShutdownTestMetrics()
 
 	glogger := log.NewGlogHandler(log.StreamHandler(os.Stderr, log.LogfmtFormat()))
 	glogger.Verbosity(log.LvlInfo)
@@ -442,6 +441,10 @@ func execP2PNode() {
 		defer signal.Stop(sigc)
 		<-sigc
 		log.Info("Received SIGTERM, shutting down...")
+
+		// shutdown metrics
+		metrics.ShutdownTestMetrics()
+
 		stack.Stop()
 	}()
 
