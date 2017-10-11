@@ -680,7 +680,7 @@ func (self *Pss) forward(msg *PssMsg) error {
 		// attempt to send the message
 		err := pp.Send(msg)
 		if err != nil {
-			log.Debug(fmt.Sprintf("%v: failed forwarding: %v", sendMsg, err))
+			//log.Debug(fmt.Sprintf("%v: failed forwarding: %v", sendMsg, err))
 			return true
 		}
 		log.Trace(fmt.Sprintf("%v: successfully forwarded", sendMsg))
@@ -704,7 +704,7 @@ func (self *Pss) forward(msg *PssMsg) error {
 	})
 
 	if sent == 0 {
-		log.Debug("unable to forward to any peers")
+		//log.Debug("unable to forward to any peers")
 		return nil
 		//return errors.New("unable to forward to any peers")
 	}
