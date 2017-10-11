@@ -67,7 +67,9 @@ func initTest() {
 	//loglevel = log.LvlDebug
 	//} else if *debugdebugflag {
 	//}
-	loglevel := log.LvlTrace
+	//loglevel := log.LvlTrace
+	//loglevel := log.LvlDebug
+	loglevel := log.LvlInfo
 
 	psslogmain = log.New("psslog", "*")
 	hs := log.StreamHandler(os.Stderr, log.TerminalFormat(true))
@@ -510,7 +512,7 @@ func TestNetwork(t *testing.T) {
 	metrics.SetupTestMetrics("pss")
 	defer metrics.ShutdownTestMetrics()
 
-	t.Run("8/10000/4/exec", testNetwork)
+	t.Run("4/5000/4/sock", testNetwork)
 }
 
 func testNetwork(t *testing.T) {
@@ -577,7 +579,7 @@ func testNetwork(t *testing.T) {
 
 	triggerChecks := func(trigger chan discover.NodeID, id discover.NodeID, rpcclient *rpc.Client) error {
 		msgC := make(chan APIMsg)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 		defer cancel()
 		sub, err := rpcclient.Subscribe(ctx, "pss", msgC, "receive", hextopic)
 		if err != nil {
@@ -663,7 +665,7 @@ func testNetwork(t *testing.T) {
 	}
 
 	finalmsgcount := 0
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 outer:
 	for i := 0; i < int(msgcount); i++ {
