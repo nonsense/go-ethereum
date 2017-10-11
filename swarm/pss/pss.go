@@ -92,9 +92,11 @@ type Pss struct {
 	auxAPIs         []rpc.API         // builtins (handshake, test) can add APIs
 
 	// sending and forwarding
-	fwdPool         map[discover.NodeID]*protocols.Peer // keep track of all peers sitting on the pssmsg routing layer
-	fwdCache        map[pssDigest]pssCacheEntry         // checksum of unique fields from pssmsg mapped to expiry, cache to determine whether to drop msg
-	cacheTTL        time.Duration                       // how long to keep messages in fwdCache (not implemented)
+	fwdPool   map[discover.NodeID]*protocols.Peer // keep track of all peers sitting on the pssmsg routing layer
+	fwdPoolMu sync.Mutex
+
+	fwdCache        map[pssDigest]pssCacheEntry // checksum of unique fields from pssmsg mapped to expiry, cache to determine whether to drop msg
+	cacheTTL        time.Duration               // how long to keep messages in fwdCache (not implemented)
 	msgTTL          time.Duration
 	paddingByteSize int
 
@@ -191,7 +193,9 @@ func (self *Pss) Protocols() []p2p.Protocol {
 
 func (self *Pss) Run(p *p2p.Peer, rw p2p.MsgReadWriter) error {
 	pp := protocols.NewPeer(p, rw, pssSpec)
+	self.fwdPoolMu.Lock()
 	self.fwdPool[p.ID()] = pp
+	self.fwdPoolMu.Unlock()
 	return pp.Run(self.handlePssMsg)
 }
 
@@ -672,7 +676,11 @@ func (self *Pss) forward(msg *PssMsg) error {
 			log.Crit("Pss cannot use kademlia peer type")
 			return false
 		}
+
+		self.fwdPoolMu.Lock()
 		pp := self.fwdPool[sp.ID()]
+		self.fwdPoolMu.Unlock()
+
 		if self.checkFwdCache(op.Address(), digest) {
 			log.Trace(fmt.Sprintf("%v: peer already forwarded to", sendMsg))
 			return true
