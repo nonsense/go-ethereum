@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	mrand "math/rand"
 	"net"
 	"os"
 	"sync"
@@ -61,7 +62,8 @@ func NewSimAdapter(services map[string]ServiceFunc) *SimAdapter {
 // the adapter uses a OS socketpairs for in-memory simulated network connections
 func NewSocketAdapter(services map[string]ServiceFunc) *SimAdapter {
 	return &SimAdapter{
-		pipe:     socketPipe,
+		//pipe:     socketPipe,
+		pipe:     tcpPipe,
 		nodes:    make(map[discover.NodeID]*SimNode),
 		services: services,
 	}
@@ -341,6 +343,55 @@ func (self *SimNode) NodeInfo() *p2p.NodeInfo {
 		}
 	}
 	return server.NodeInfo()
+}
+
+func tcpPipe() (net.Conn, net.Conn, error) {
+	port := 9000 + mrand.Int()%1000
+
+	endpoint := fmt.Sprintf("localhost:%d", port)
+
+	// resolve
+	addr, err := net.ResolveTCPAddr("tcp", endpoint)
+	if err != nil {
+		panic(err)
+	}
+
+	cl := make(chan net.Conn)
+	cd := make(chan net.Conn)
+	start := make(chan struct{})
+
+	go func(listener chan net.Conn, start chan struct{}) {
+		// listen
+		l, err := net.ListenTCP("tcp", addr)
+		if err != nil {
+			panic(err)
+		}
+		start <- struct{}{}
+		// accept connection on port
+		fmt.Println("listening...")
+		conn, err := l.AcceptTCP()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("accepted!")
+		listener <- conn
+	}(cl, start)
+
+	go func(dialer chan net.Conn, start chan struct{}) {
+		<-start
+		// connect to this socket
+		fmt.Println("dialing...")
+		c, err := net.DialTCP("tcp", nil, addr)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("dialed")
+		dialer <- c
+	}(cd, start)
+
+	a := <-cl
+	b := <-cd
+	return a, b, nil
 }
 
 // socketPipe creates an in process full duplex pipe based on OS sockets
