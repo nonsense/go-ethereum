@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/rlp"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 const (
@@ -265,6 +266,7 @@ func (p *Peer) readLoop(errc chan<- error) {
 }
 
 func (p *Peer) handle(msg Msg) error {
+	metrics.GetOrRegisterCounter("peer.handlemsg", nil).Inc(1)
 	switch {
 	case msg.Code == pingMsg:
 		msg.Discard()
@@ -379,6 +381,8 @@ type protoRW struct {
 }
 
 func (rw *protoRW) WriteMsg(msg Msg) (err error) {
+	metrics.GetOrRegisterCounter("peer.writemsg", nil).Inc(1)
+	metrics.GetOrRegisterCounter("peer.protocol."+rw.Protocol.Name, nil).Inc(1)
 	if msg.Code >= rw.Length {
 		return newPeerError(errInvalidMsgCode, "not handled")
 	}
@@ -398,6 +402,8 @@ func (rw *protoRW) WriteMsg(msg Msg) (err error) {
 }
 
 func (rw *protoRW) ReadMsg() (Msg, error) {
+	metrics.GetOrRegisterCounter("peer.readmsg", nil).Inc(1)
+	metrics.GetOrRegisterCounter("peer.protocolread."+rw.Protocol.Name, nil).Inc(1)
 	select {
 	case msg := <-rw.in:
 		msg.Code -= rw.offset

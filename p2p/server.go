@@ -33,6 +33,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/discv5"
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/ethereum/go-ethereum/p2p/netutil"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 const (
@@ -578,6 +579,7 @@ running:
 				name := truncateName(c.name)
 				srv.log.Debug("Adding p2p peer", "name", name, "addr", c.fd.RemoteAddr(), "peers", len(peers)+1)
 				peers[c.id] = p
+				metrics.GetOrRegisterCounter("newpeer", nil).Inc(1)
 				go srv.runPeer(p)
 			}
 			// The dialer logic relies on the assumption that

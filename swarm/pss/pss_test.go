@@ -631,12 +631,12 @@ func TestNetwork(t *testing.T) {
 		}
 	}
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(2000 * time.Millisecond)
 
 	jobs := make(chan Job, 100)
 
 	// setup workers
-	for w := 1; w <= 1; w++ {
+	for w := 1; w <= 10; w++ {
 		go worker(w, jobs, rpcs, pubkeys, hextopic)
 	}
 

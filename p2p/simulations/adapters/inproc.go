@@ -367,6 +367,29 @@ func socketPipe() (net.Conn, net.Conn, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	switch v := pipe1.(type) {
+	case *net.UnixConn:
+		err := v.SetReadBuffer(5000 * 1024)
+		if err != nil {
+			panic(err)
+		}
+		err = v.SetWriteBuffer(5000 * 1024)
+		if err != nil {
+			panic(err)
+		}
+	}
+	switch v := pipe2.(type) {
+	case *net.UnixConn:
+		err := v.SetReadBuffer(5000 * 1024)
+		if err != nil {
+			panic(err)
+		}
+		err = v.SetWriteBuffer(5000 * 1024)
+		if err != nil {
+			panic(err)
+		}
+	}
 	return pipe1, pipe2, nil
 }
 
