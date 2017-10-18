@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/network"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	whisper "github.com/ethereum/go-ethereum/whisper/whisperv5"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 // TODO: proper padding generation for messages
@@ -277,6 +278,7 @@ func (self *Pss) getHandlers(topic whisper.TopicType) map[*Handler]bool {
 // If yes, it CAN be for us, and we process it
 // Passes error to pss protocol handler if payload is not valid pssmsg
 func (self *Pss) handlePssMsg(msg interface{}) error {
+	metrics.GetOrRegisterCounter("pss.handlePssMsg", nil).Inc(1)
 	pssmsg, ok := msg.(*PssMsg)
 	if ok {
 		if !self.isSelfPossibleRecipient(pssmsg) {
@@ -302,6 +304,7 @@ func (self *Pss) handlePssMsg(msg interface{}) error {
 // Attempts symmetric and asymmetric decryption with stored keys.
 // Dispatches message to all handlers matching the message topic
 func (self *Pss) process(pssmsg *PssMsg) error {
+	metrics.GetOrRegisterCounter("pss.process", nil).Inc(1)
 	var err error
 	var recvmsg *whisper.ReceivedMessage
 	var from *PssAddress
@@ -461,6 +464,7 @@ func (self *Pss) GetSymmetricKey(symkeyid string) ([]byte, error) {
 // of the symmetric key used to decrypt the message.
 // It fails if decryption of the message fails or if the message is corrupted
 func (self *Pss) processSym(envelope *whisper.Envelope) (*whisper.ReceivedMessage, string, *PssAddress, error) {
+	metrics.GetOrRegisterCounter("pss.processSym", nil).Inc(1)
 	for i := self.symKeyDecryptCacheCursor; i > self.symKeyDecryptCacheCursor-cap(self.symKeyDecryptCache) && i > 0; i-- {
 		symkeyid := self.symKeyDecryptCache[i%cap(self.symKeyDecryptCache)]
 		symkey, err := self.w.GetSymKey(*symkeyid)
@@ -491,6 +495,7 @@ func (self *Pss) processSym(envelope *whisper.Envelope) (*whisper.ReceivedMessag
 // the public key used to decrypt the message.
 // It fails if decryption of message fails, or if the message is corrupted
 func (self *Pss) processAsym(envelope *whisper.Envelope) (*whisper.ReceivedMessage, string, *PssAddress, error) {
+	metrics.GetOrRegisterCounter("pss.processAsym", nil).Inc(1)
 	recvmsg, err := envelope.OpenAsymmetric(self.privateKey)
 	if err != nil {
 		return nil, "", nil, errors.New(fmt.Sprintf("asym default decrypt of pss msg failed: %v", "err", err))
@@ -551,6 +556,7 @@ func (self *Pss) cleanKeys() (count int) {
 //
 // Fails if the key id does not match any of the stored symmetric keys
 func (self *Pss) SendSym(symkeyid string, topic whisper.TopicType, msg []byte) error {
+	metrics.GetOrRegisterCounter("pss.SendSym", nil).Inc(1)
 	symkey, err := self.GetSymmetricKey(symkeyid)
 	if err != nil {
 		return errors.New(fmt.Sprintf("missing valid send symkey %s: %v", symkeyid, err))
@@ -566,6 +572,7 @@ func (self *Pss) SendSym(symkeyid string, topic whisper.TopicType, msg []byte) e
 //
 // Fails if the key id does not match any in of the stored public keys
 func (self *Pss) SendAsym(pubkeyid string, topic whisper.TopicType, msg []byte) error {
+	metrics.GetOrRegisterCounter("pss.SendAsym", nil).Inc(1)
 	//pubkey := self.pubKeyIndex[pubkeyid]
 	pubkey := crypto.ToECDSAPub(common.FromHex(pubkeyid))
 	if pubkey == nil {
@@ -586,6 +593,7 @@ func (self *Pss) SendAsym(pubkeyid string, topic whisper.TopicType, msg []byte) 
 // and wraps the message payload in it.
 // TODO: Implement proper message padding
 func (self *Pss) send(to []byte, topic whisper.TopicType, msg []byte, asymmetric bool, key []byte) error {
+	metrics.GetOrRegisterCounter("pss.send", nil).Inc(1)
 	if key == nil || bytes.Equal(key, []byte{}) {
 		return errors.New(fmt.Sprintf("Zero length key passed to pss send"))
 	}
@@ -636,6 +644,7 @@ func (self *Pss) send(to []byte, topic whisper.TopicType, msg []byte, asymmetric
 // The recipient address can be of any length, and the byte slice will be matched to the MSB slice
 // of the peer address of the equivalent length.
 func (self *Pss) forward(msg *PssMsg) error {
+	metrics.GetOrRegisterCounter("pss.forward", nil).Inc(1)
 	to := make([]byte, addressLength)
 	copy(to[:len(msg.To)], msg.To)
 
