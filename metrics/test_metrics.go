@@ -27,12 +27,21 @@ import (
 var gc metrics.GraphiteConfig
 
 func SetupTestMetrics(namespace string) {
+	//setupStatsdReporter()
+	setupGraphiteReporter(namespace)
+}
+
+func ShutdownTestMetrics() {
+	metrics.GraphiteOnce(gc)
+}
+
+func setupGraphiteReporter(namespace string) {
 	addr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:2003")
 
 	gc = metrics.GraphiteConfig{
 		Addr:          addr,
 		Registry:      metrics.DefaultRegistry,
-		FlushInterval: 500 * time.Millisecond,
+		FlushInterval: 100 * time.Millisecond,
 		DurationUnit:  time.Nanosecond,
 		Prefix:        namespace,
 		Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
@@ -41,6 +50,20 @@ func SetupTestMetrics(namespace string) {
 	go metrics.GraphiteWithConfig(gc)
 }
 
-func ShutdownTestMetrics() {
-	metrics.GraphiteOnce(gc)
+func setupStatsdReporter() {
+	reporter, err := metrics.NewStatsdReporter(
+		metrics.DefaultRegistry,
+		"127.0.0.1:8125", // DogStatsD UDP address
+		time.Second*1,    // Update interval
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// configure a prefix, and send the EC2 availability zone as a tag with
+	// every metric.
+	reporter.Client.Namespace = "pss."
+	//reporter.Client.Tags = append(reporter.Client.Tags, "us-east-1a")
+
+	go reporter.Flush()
 }
