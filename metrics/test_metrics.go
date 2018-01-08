@@ -18,52 +18,64 @@
 package metrics
 
 import (
-	"net"
-	"time"
-
-	"github.com/rcrowley/go-metrics"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/metrics"
+	"github.com/go-kit/kit/metrics/statsd"
+	//	"github.com/rcrowley/go-metrics"
 )
 
-var gc metrics.GraphiteConfig
+//var gc metrics.GraphiteConfig
+var m *statsd.Statsd
+
+var (
+	RpcClientSubscribe metrics.Counter
+	RpcClientWrite     metrics.Counter
+	RpcClientSend      metrics.Counter
+)
 
 func SetupTestMetrics(namespace string) {
+	m = statsd.New("pss.", log.NewNopLogger())
+	RpcClientSubscribe = m.NewCounter("rpc.client.subscribe", 1.0)
+	RpcClientSend = m.NewCounter("rpc.client.send", 1.0)
+	RpcClientWrite = m.NewCounter("rpc.client.write", 1.0)
+
 	//setupStatsdReporter()
-	setupGraphiteReporter(namespace)
+	//setupGraphiteReporter(namespace)
 }
 
 func ShutdownTestMetrics() {
-	metrics.GraphiteOnce(gc)
+	//metrics.GraphiteOnce(gc)
 }
 
-func setupGraphiteReporter(namespace string) {
-	addr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:2003")
+//func setupGraphiteReporter(namespace string) {
+//addr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:2003")
 
-	gc = metrics.GraphiteConfig{
-		Addr:          addr,
-		Registry:      metrics.DefaultRegistry,
-		FlushInterval: 100 * time.Millisecond,
-		DurationUnit:  time.Nanosecond,
-		Prefix:        namespace,
-		Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
-	}
+//gc = metrics.GraphiteConfig{
+//Addr:          addr,
+//Registry:      metrics.DefaultRegistry,
+//FlushInterval: 100 * time.Millisecond,
+//DurationUnit:  time.Nanosecond,
+//Prefix:        namespace,
+//Percentiles:   []float64{0.5, 0.75, 0.95, 0.99, 0.999},
+//}
 
-	go metrics.GraphiteWithConfig(gc)
-}
+//go metrics.GraphiteWithConfig(gc)
+//}
 
-func setupStatsdReporter() {
-	reporter, err := metrics.NewStatsdReporter(
-		metrics.DefaultRegistry,
-		"127.0.0.1:8125", // DogStatsD UDP address
-		time.Second*1,    // Update interval
-	)
-	if err != nil {
-		panic(err)
-	}
+//func setupStatsdReporter() {
+//reporter, err := metrics.NewStatsdReporter(
+//metrics.DefaultRegistry,
+//"127.0.0.1:8125", // DogStatsD UDP address
+//time.Second*1,    // Update interval
+//)
+//if err != nil {
+//panic(err)
+//}
 
-	// configure a prefix, and send the EC2 availability zone as a tag with
-	// every metric.
-	reporter.Client.Namespace = "pss."
-	//reporter.Client.Tags = append(reporter.Client.Tags, "us-east-1a")
+//// configure a prefix, and send the EC2 availability zone as a tag with
+//// every metric.
+//reporter.Client.Namespace = "pss."
+////reporter.Client.Tags = append(reporter.Client.Tags, "us-east-1a")
 
-	go reporter.Flush()
-}
+//go reporter.Flush()
+//}
