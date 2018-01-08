@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 )
 
 var (
@@ -60,7 +61,7 @@ const (
 	// The approach taken here is to maintain a per-subscription linked list buffer
 	// shrinks on demand. If the buffer reaches the size below, the subscription is
 	// dropped.
-	maxClientSubscriptionBuffer = 20000
+	maxClientSubscriptionBuffer = 700000
 )
 
 // BatchElem is an element in a batch request.
@@ -372,6 +373,10 @@ func (c *Client) ShhSubscribe(ctx context.Context, channel interface{}, args ...
 // ErrSubscriptionQueueOverflow. Use a sufficiently large buffer on the channel or ensure
 // that the channel usually has at least one reader to prevent this issue.
 func (c *Client) Subscribe(ctx context.Context, namespace string, channel interface{}, args ...interface{}) (*ClientSubscription, error) {
+	//metrics.GetOrRegisterCounter("rpc.client.subscribe", nil).Inc(1)
+	//metrics.RpcClientSubscribe.Add(1)
+	metrics.Client.Inc("rpc.client.subscribe", 1, 1.0)
+
 	// Check type of channel first.
 	chanVal := reflect.ValueOf(channel)
 	if chanVal.Kind() != reflect.Chan || chanVal.Type().ChanDir()&reflect.SendDir == 0 {
@@ -416,6 +421,9 @@ func (c *Client) newMessage(method string, paramsIn ...interface{}) (*jsonrpcMes
 // send registers op with the dispatch loop, then sends msg on the connection.
 // if sending fails, op is deregistered.
 func (c *Client) send(ctx context.Context, op *requestOp, msg interface{}) error {
+	//metrics.GetOrRegisterCounter("rpc.client.send", nil).Inc(1)
+	//metrics.RpcClientSend.Add(1)
+	metrics.Client.Inc("rpc.client.send", 1, 1.0)
 	select {
 	case c.requestOp <- op:
 		log.Trace("", "msg", log.Lazy{Fn: func() string {
@@ -434,6 +442,9 @@ func (c *Client) send(ctx context.Context, op *requestOp, msg interface{}) error
 }
 
 func (c *Client) write(ctx context.Context, msg interface{}) error {
+	//metrics.GetOrRegisterCounter("rpc.client.write", nil).Inc(1)
+	//metrics.RpcClientWrite.Add(1)
+	metrics.Client.Inc("rpc.client.write", 1, 1.0)
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		deadline = time.Now().Add(defaultWriteTimeout)

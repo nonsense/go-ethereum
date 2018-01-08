@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/rpc"
 	whisper "github.com/ethereum/go-ethereum/whisper/whisperv5"
+	metrics "github.com/rcrowley/go-metrics"
 )
 
 // Wrapper for receiving pss messages when using the pss API
@@ -48,6 +50,7 @@ func (pssapi *API) Receive(ctx context.Context, topic whisper.TopicType) (*rpc.S
 			Asymmetric: asymmetric,
 			Key:        keyid,
 		}
+		metrics.GetOrRegisterCounter("pss.Receive.Notify", nil).Inc(1)
 		if err := notifier.Notify(psssub.ID, apimsg); err != nil {
 			log.Warn(fmt.Sprintf("notification on pss sub topic rpc (sub %v) msg %v failed!", psssub.ID, msg))
 		}

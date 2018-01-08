@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
@@ -497,6 +499,13 @@ func worker(id int, jobs <-chan Job, rpcs map[discover.NodeID]*rpc.Client, pubke
 // nodes/msgs/addrbytes/adaptertype
 // if adaptertype is exec uses execadapter, simadapter otherwise
 func TestNetwork(t *testing.T) {
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
+	metrics.SetupTestMetrics("pss")
+	defer metrics.ShutdownTestMetrics()
+
 	t.Run("3/2000/4/sock", testNetwork)
 	t.Run("4/2000/4/sock", testNetwork)
 	t.Run("8/2000/4/sock", testNetwork)
