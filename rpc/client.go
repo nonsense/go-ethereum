@@ -374,7 +374,8 @@ func (c *Client) ShhSubscribe(ctx context.Context, channel interface{}, args ...
 // that the channel usually has at least one reader to prevent this issue.
 func (c *Client) Subscribe(ctx context.Context, namespace string, channel interface{}, args ...interface{}) (*ClientSubscription, error) {
 	//metrics.GetOrRegisterCounter("rpc.client.subscribe", nil).Inc(1)
-	metrics.RpcClientSubscribe.Add(1)
+	//metrics.RpcClientSubscribe.Add(1)
+	metrics.Client.Inc("rpc.client.subscribe", 1, 1.0)
 
 	// Check type of channel first.
 	chanVal := reflect.ValueOf(channel)
@@ -421,7 +422,8 @@ func (c *Client) newMessage(method string, paramsIn ...interface{}) (*jsonrpcMes
 // if sending fails, op is deregistered.
 func (c *Client) send(ctx context.Context, op *requestOp, msg interface{}) error {
 	//metrics.GetOrRegisterCounter("rpc.client.send", nil).Inc(1)
-	metrics.RpcClientSend.Add(1)
+	//metrics.RpcClientSend.Add(1)
+	metrics.Client.Inc("rpc.client.send", 1, 1.0)
 	select {
 	case c.requestOp <- op:
 		log.Trace("", "msg", log.Lazy{Fn: func() string {
@@ -441,7 +443,8 @@ func (c *Client) send(ctx context.Context, op *requestOp, msg interface{}) error
 
 func (c *Client) write(ctx context.Context, msg interface{}) error {
 	//metrics.GetOrRegisterCounter("rpc.client.write", nil).Inc(1)
-	metrics.RpcClientWrite.Add(1)
+	//metrics.RpcClientWrite.Add(1)
+	metrics.Client.Inc("rpc.client.write", 1, 1.0)
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		deadline = time.Now().Add(defaultWriteTimeout)

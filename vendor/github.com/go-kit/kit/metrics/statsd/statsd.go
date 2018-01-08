@@ -95,6 +95,7 @@ func (s *Statsd) NewTiming(name string, sampleRate float64) *Timing {
 func (s *Statsd) WriteLoop(c <-chan time.Time, w io.Writer) {
 	for range c {
 		if _, err := s.WriteTo(w); err != nil {
+			panic(err)
 			s.logger.Log("during", "WriteTo", "err", err)
 		}
 	}

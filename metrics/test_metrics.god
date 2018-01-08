@@ -18,19 +18,33 @@
 package metrics
 
 import (
-	"github.com/cactus/go-statsd-client/statsd"
+	"os"
+	"time"
+
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/metrics"
+	"github.com/go-kit/kit/metrics/statsd"
+	//	"github.com/rcrowley/go-metrics"
 )
 
+//var gc metrics.GraphiteConfig
+var m *statsd.Statsd
+
 var (
-	Client statsd.Statter
+	RpcClientSubscribe metrics.Counter
+	RpcClientWrite     metrics.Counter
+	RpcClientSend      metrics.Counter
 )
 
 func SetupTestMetrics(namespace string) {
-	var err error
-	Client, err = statsd.NewBufferedClient("127.0.0.1:8125", "pss_statsd", 0, 0)
-	if err != nil {
-		panic(err)
-	}
+	m = statsd.New("pss_statsd.", log.NewLogfmtLogger(os.Stdout))
+	RpcClientSubscribe = m.NewCounter("rpc.client.subscribe", 1.0)
+	RpcClientSend = m.NewCounter("rpc.client.send", 1.0)
+	RpcClientWrite = m.NewCounter("rpc.client.write", 1.0)
+
+	report := time.NewTicker(500 * time.Millisecond)
+	defer report.Stop()
+	go m.SendLoop(report.C, "tcp", "localhost:8125")
 
 	//setupStatsdReporter()
 	//setupGraphiteReporter(namespace)
