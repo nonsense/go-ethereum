@@ -42,11 +42,11 @@ func NewStorage(api *Api) *Storage {
 //
 // DEPRECATED: Use the HTTP API instead
 func (self *Storage) Put(content, contentType string) (string, error) {
-	key, err := self.api.Put(content, contentType)
+	key, _, err := self.api.Put(content, contentType)
 	if err != nil {
 		return "", err
 	}
-	return key.String(), err
+	return key.Hex(), err
 }
 
 // Get retrieves the content from bzzpath and reads the response in full
@@ -100,5 +100,5 @@ func (self *Storage) Modify(rootHash, path, contentHash, contentType string) (ne
 	if err != nil {
 		return "", err
 	}
-	return key.String(), nil
+	return key.Hex(), nil
 }

@@ -18,7 +18,32 @@ package storage
 
 import (
 	"encoding/binary"
+	"fmt"
+	"path/filepath"
+
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/swarm/storage/mock"
 )
+
+type StoreParams struct {
+	ChunkDbPath   string
+	DbCapacity    uint64
+	CacheCapacity uint
+}
+
+//create params with default values
+func NewDefaultStoreParams() (self *StoreParams) {
+	return &StoreParams{
+		DbCapacity:    defaultDbCapacity,
+		CacheCapacity: defaultCacheCapacity,
+	}
+}
+
+//this can only finally be set after all config options (file, cmd line, env vars)
+//have been evaluated
+func (self *StoreParams) Init(path string) {
+	self.ChunkDbPath = filepath.Join(path, "chunks")
+}
 
 // LocalStore is a combination of inmemory db over a disk persisted db
 // implements a Get/Put with fallback (caching) logic using any 2 ChunkStores
@@ -28,8 +53,8 @@ type LocalStore struct {
 }
 
 // This constructor uses MemStore and DbStore as components
-func NewLocalStore(hash SwarmHasher, params *StoreParams) (*LocalStore, error) {
-	dbStore, err := NewDbStore(params.ChunkDbPath, hash, params.DbCapacity, params.Radius)
+func NewLocalStore(hash SwarmHasher, params *StoreParams, basekey []byte, mockStore *mock.NodeStore) (*LocalStore, error) {
+	dbStore, err := NewMockDbStore(params.ChunkDbPath, hash, params.DbCapacity, func(k Key) (ret uint8) { return uint8(Proximity(basekey[:], k[:])) }, mockStore)
 	if err != nil {
 		return nil, err
 	}
@@ -39,20 +64,45 @@ func NewLocalStore(hash SwarmHasher, params *StoreParams) (*LocalStore, error) {
 	}, nil
 }
 
+func NewTestLocalStore(path string) (*LocalStore, error) {
+	basekey := make([]byte, 32)
+	hasher := MakeHashFunc("SHA3")
+	dbStore, err := NewDbStore(path, hasher, singletonSwarmDbCapacity, func(k Key) (ret uint8) { return uint8(Proximity(basekey[:], k[:])) })
+	if err != nil {
+		return nil, err
+	}
+	localStore := &LocalStore{
+		memStore: NewMemStore(dbStore, singletonSwarmDbCapacity),
+		DbStore:  dbStore,
+	}
+	return localStore, nil
+}
+
+func NewTestLocalStoreForAddr(path string, basekey []byte) (*LocalStore, error) {
+	hasher := MakeHashFunc("SHA3")
+	dbStore, err := NewDbStore(path, hasher, singletonSwarmDbCapacity, func(k Key) (ret uint8) { return uint8(Proximity(basekey[:], k[:])) })
+	if err != nil {
+		return nil, err
+	}
+	localStore := &LocalStore{
+		memStore: NewMemStore(dbStore, singletonSwarmDbCapacity),
+		DbStore:  dbStore,
+	}
+	return localStore, nil
+}
+
 // LocalStore is itself a chunk store
 // unsafe, in that the data is not integrity checked
 func (self *LocalStore) Put(chunk *Chunk) {
-	chunk.dbStored = make(chan bool)
-	self.memStore.Put(chunk)
-	if chunk.wg != nil {
-		chunk.wg.Add(1)
+	chunk.Size = int64(binary.LittleEndian.Uint64(chunk.SData[0:8]))
+	c := &Chunk{
+		Key:      Key(append([]byte{}, chunk.Key...)),
+		SData:    append([]byte{}, chunk.SData...),
+		Size:     chunk.Size,
+		dbStored: chunk.dbStored,
 	}
-	go func() {
-		self.DbStore.Put(chunk)
-		if chunk.wg != nil {
-			chunk.wg.Done()
-		}
-	}()
+	self.memStore.Put(c)
+	self.DbStore.Put(c)
 }
 
 // Get(chunk *Chunk) looks up a chunk in the local stores
@@ -62,6 +112,13 @@ func (self *LocalStore) Put(chunk *Chunk) {
 func (self *LocalStore) Get(key Key) (chunk *Chunk, err error) {
 	chunk, err = self.memStore.Get(key)
 	if err == nil {
+		if chunk.ReqC != nil {
+			select {
+			case <-chunk.ReqC:
+			default:
+				return chunk, ErrFetching
+			}
+		}
 		return
 	}
 	chunk, err = self.DbStore.Get(key)
@@ -73,5 +130,26 @@ func (self *LocalStore) Get(key Key) (chunk *Chunk, err error) {
 	return
 }
 
+// retrieve logic common for local and network chunk retrieval requests
+func (self *LocalStore) GetOrCreateRequest(key Key) (chunk *Chunk, created bool) {
+	var err error
+	chunk, err = self.Get(key)
+	if err == nil {
+		log.Trace(fmt.Sprintf("LocalStore.GetOrRetrieve: %v found locally", key))
+		return chunk, false
+	}
+	if err == ErrFetching {
+		log.Trace(fmt.Sprintf("LocalStore.GetOrRetrieve: %v hit on an existing request %v", key, chunk.ReqC))
+		return chunk, false
+	}
+	// no data and no request status
+	log.Trace(fmt.Sprintf("LocalStore.GetOrRetrieve: %v not found locally. open new request", key))
+	chunk = NewChunk(key, make(chan bool))
+	self.memStore.Put(chunk)
+	return chunk, true
+}
+
 // Close local store
-func (self *LocalStore) Close() {}
+func (self *LocalStore) Close() {
+	self.DbStore.Close()
+}

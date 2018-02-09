@@ -145,6 +145,10 @@ var (
 		Name:  "mime",
 		Usage: "force mime type",
 	}
+	SwarmPssEnabledFlag = cli.BoolFlag{
+		Name:  "pss",
+		Usage: "Enable pss (message passing over swarm)",
+	}
 	CorsStringFlag = cli.StringFlag{
 		Name:   "corsdomain",
 		Usage:  "Domain on which to send Access-Control-Allow-Origin header (multiple domains can be supplied separated by a ',')",
@@ -361,9 +365,19 @@ DEPRECATED: use 'swarm db clean'.
 		SwarmUploadDefaultPath,
 		SwarmUpFromStdinFlag,
 		SwarmUploadMimeType,
+		// pss flags
+		SwarmPssEnabledFlag,
 		//deprecated flags
 		DeprecatedEthAPIFlag,
 	}
+	rpcFlags := []cli.Flag{
+		utils.WSEnabledFlag,
+		utils.WSListenAddrFlag,
+		utils.WSPortFlag,
+		utils.WSApiFlag,
+		utils.WSAllowedOriginsFlag,
+	}
+	app.Flags = append(app.Flags, rpcFlags...)
 	app.Flags = append(app.Flags, debug.Flags...)
 	app.Before = func(ctx *cli.Context) error {
 		runtime.GOMAXPROCS(runtime.NumCPU())
@@ -405,6 +419,12 @@ func bzzd(ctx *cli.Context) error {
 	}
 
 	cfg := defaultNodeConfig
+
+	//pss operates on ws
+	if bzzconfig.PssEnabled {
+		cfg.WSModules = append(cfg.WSModules, "pss")
+	}
+
 	//geth only supports --datadir via command line
 	//in order to be consistent within swarm, if we pass --datadir via environment variable
 	//or via config file, we get the same directory for geth and swarm
@@ -514,7 +534,8 @@ func registerBzzService(bzzconfig *bzzapi.Config, ctx *cli.Context, stack *node.
 			}
 		}
 
-		return swarm.NewSwarm(ctx, swapClient, ensClient, bzzconfig, bzzconfig.SwapEnabled, bzzconfig.SyncEnabled, bzzconfig.Cors)
+		// In production, mockStore must be always nil.
+		return swarm.NewSwarm(ctx, swapClient, ensClient, bzzconfig, bzzconfig.SwapEnabled, bzzconfig.SyncEnabled, bzzconfig.Cors, bzzconfig.PssEnabled, nil)
 	}
 	//register within the ethereum node
 	if err := stack.Register(boot); err != nil {
