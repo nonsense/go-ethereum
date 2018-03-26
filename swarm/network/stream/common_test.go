@@ -104,7 +104,11 @@ func newStreamerTester(t *testing.T) (*p2ptest.ProtocolTester, *Registry, *stora
 		os.RemoveAll(datadir)
 	}
 
-	localStore, err := storage.NewTestLocalStoreForAddr(datadir, addr.Over())
+	params := storage.NewDefaultLocalstoreParams()
+	params.BaseKey = addr.Over()
+	params.Init(datadir)
+
+	localStore, err := storage.NewTestLocalStoreForAddr(params)
 	if err != nil {
 		return nil, nil, nil, removeDataDir, err
 	}
@@ -168,6 +172,10 @@ func (rrs *roundRobinStore) Close() {
 	for _, store := range rrs.stores {
 		store.Close()
 	}
+}
+
+func (rrs *roundRobinStore) Validate(key *storage.Key, data []byte) bool {
+	return true
 }
 
 type TestRegistry struct {
