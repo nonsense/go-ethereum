@@ -76,7 +76,7 @@ func NewStreamerService(ctx *adapters.ServiceContext) (node.Service, error) {
 	kad := network.NewKademlia(addr.Over(), network.NewKadParams())
 	store := stores[id].(*storage.LocalStore)
 	db := storage.NewDBAPI(store)
-	delivery := NewDelivery(kad, db)
+	delivery := NewDelivery(kad, db, nil)
 	deliveries[id] = delivery
 	r := NewRegistry(addr, delivery, db, state.NewMemStore(), &RegistryOptions{
 		SkipCheck: defaultSkipCheck,
@@ -104,7 +104,7 @@ func newStreamerTester(t *testing.T) (*p2ptest.ProtocolTester, *Registry, *stora
 		os.RemoveAll(datadir)
 	}
 
-	params := storage.NewDefaultLocalstoreParams()
+	params := storage.NewDefaultLocalStoreParams()
 	params.BaseKey = addr.Over()
 	params.Init(datadir)
 
@@ -114,7 +114,7 @@ func newStreamerTester(t *testing.T) (*p2ptest.ProtocolTester, *Registry, *stora
 	}
 
 	db := storage.NewDBAPI(localStore)
-	delivery := NewDelivery(to, db)
+	delivery := NewDelivery(to, db, nil)
 	streamer := NewRegistry(addr, delivery, db, state.NewMemStore(), &RegistryOptions{
 		SkipCheck: defaultSkipCheck,
 	})
@@ -172,10 +172,6 @@ func (rrs *roundRobinStore) Close() {
 	for _, store := range rrs.stores {
 		store.Close()
 	}
-}
-
-func (rrs *roundRobinStore) Validate(key *storage.Key, data []byte) bool {
-	return true
 }
 
 type TestRegistry struct {
