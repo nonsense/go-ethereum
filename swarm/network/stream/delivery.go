@@ -34,19 +34,19 @@ const (
 )
 
 type Delivery struct {
-	db        *storage.DBAPI
-	overlay   network.Overlay
-	receiveC  chan *ChunkDeliveryMsg
-	getPeer   func(discover.NodeID) *Peer
-	validator *storage.ChunkValidator
+	db         *storage.DBAPI
+	overlay    network.Overlay
+	receiveC   chan *ChunkDeliveryMsg
+	getPeer    func(discover.NodeID) *Peer
+	validators []storage.ChunkValidator
 }
 
-func NewDelivery(overlay network.Overlay, db *storage.DBAPI, validator *storage.ChunkValidator) *Delivery {
+func NewDelivery(overlay network.Overlay, db *storage.DBAPI, validators []storage.ChunkValidator) *Delivery {
 	d := &Delivery{
-		db:        db,
-		overlay:   overlay,
-		receiveC:  make(chan *ChunkDeliveryMsg, deliveryCap),
-		validator: validator,
+		db:         db,
+		overlay:    overlay,
+		receiveC:   make(chan *ChunkDeliveryMsg, deliveryCap),
+		validators: validators,
 	}
 
 	go d.processReceivedChunks()

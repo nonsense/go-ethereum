@@ -54,10 +54,10 @@ func (self *LocalStoreParams) Init(path string) {
 // LocalStore is a combination of inmemory db over a disk persisted db
 // implements a Get/Put with fallback (caching) logic using any 2 ChunkStores
 type LocalStore struct {
-	Validator *ChunkValidator
-	memStore  *MemStore
-	DbStore   *LDBStore
-	mu        sync.Mutex
+	Validators []ChunkValidator
+	memStore   *MemStore
+	DbStore    *LDBStore
+	mu         sync.Mutex
 }
 
 // This constructor uses MemStore and DbStore as components
@@ -93,13 +93,22 @@ func (self *LocalStore) CacheCounter() uint64 {
 // LocalStore is itself a chunk store
 // unsafe, in that the data is not integrity checked
 func (self *LocalStore) Put(chunk *Chunk) {
-	if self.Validator != nil {
-		if !self.Validator.Validate(chunk.Key, chunk.SData) {
-			chunk.SetErrored(ChunkErrInvalid)
-			chunk.dbStoredC <- false
-			return
+	valid := true
+	for _, v := range self.Validators {
+		if v.Validate(chunk.Key, chunk.SData) {
+			valid = true
+			break
+		} else {
+			valid = false
 		}
 	}
+
+	if !valid {
+		chunk.SetErrored(ChunkErrInvalid)
+		chunk.dbStoredC <- false
+		return
+	}
+
 	log.Trace("localstore.put", "key", chunk.Key)
 	self.mu.Lock()
 	defer self.mu.Unlock()
