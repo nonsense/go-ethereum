@@ -18,6 +18,7 @@ package pss
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"errors"
@@ -30,10 +31,10 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
-	"github.com/ethereum/go-ethereum/p2p/protocols"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/network"
+	"github.com/ethereum/go-ethereum/swarm/p2p/protocols"
 	"github.com/ethereum/go-ethereum/swarm/pot"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	whisper "github.com/ethereum/go-ethereum/whisper/whisperv5"
@@ -344,7 +345,7 @@ func (p *Pss) getHandlers(topic Topic) map[*Handler]bool {
 // Check if address partially matches
 // If yes, it CAN be for us, and we process it
 // Only passes error to pss protocol handler if payload is not valid pssmsg
-func (p *Pss) handlePssMsg(msg interface{}) error {
+func (p *Pss) handlePssMsg(ctx context.Context, msg interface{}) error {
 	metrics.GetOrRegisterCounter("pss.handlepssmsg", nil).Inc(1)
 
 	pssmsg, ok := msg.(*PssMsg)
@@ -841,7 +842,8 @@ func (p *Pss) forward(msg *PssMsg) error {
 		p.fwdPoolMu.RUnlock()
 
 		// attempt to send the message
-		err := pp.Send(msg)
+		ctx := context.TODO()
+		err := pp.Send(ctx, msg)
 		if err != nil {
 			metrics.GetOrRegisterCounter("pss.pp.send.error", nil).Inc(1)
 			log.Error(err.Error())

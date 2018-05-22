@@ -17,6 +17,7 @@
 package api
 
 import (
+	"context"
 	"path"
 
 	"github.com/ethereum/go-ethereum/swarm/storage"
@@ -62,11 +63,11 @@ func (self *Storage) Get(bzzpath string) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	addr, err := self.api.Resolve(uri)
+	addr, err := self.api.Resolve(context.TODO(), uri)
 	if err != nil {
 		return nil, err
 	}
-	reader, mimeType, status, _, err := self.api.Get(addr, uri.Path)
+	reader, mimeType, status, _, err := self.api.Get(context.TODO(), addr, uri.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +93,7 @@ func (self *Storage) Modify(rootHash, path, contentHash, contentType string) (ne
 	if err != nil {
 		return "", err
 	}
-	addr, err := self.api.Resolve(uri)
+	addr, err := self.api.Resolve(context.TODO(), uri)
 	if err != nil {
 		return "", err
 	}

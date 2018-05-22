@@ -18,6 +18,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -189,7 +190,7 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 	if err != nil {
 		return err
 	}
-	addr, err := self.api.Resolve(uri)
+	addr, err := self.api.Resolve(context.TODO(), uri)
 	if err != nil {
 		return err
 	}
@@ -200,7 +201,7 @@ func (self *FileSystem) Download(bzzpath, localpath string) error {
 	}
 
 	quitC := make(chan bool)
-	trie, err := loadManifest(self.api.fileStore, addr, quitC)
+	trie, err := loadManifest(context.TODO(), self.api.fileStore, addr, quitC)
 	if err != nil {
 		log.Warn(fmt.Sprintf("fs.Download: loadManifestTrie error: %v", err))
 		return err
@@ -273,7 +274,7 @@ func retrieveToFile(quitC chan bool, fileStore *storage.FileStore, addr storage.
 	if err != nil {
 		return err
 	}
-	reader, _ := fileStore.Retrieve(addr)
+	reader, _ := fileStore.Retrieve(context.TODO(), addr)
 	writer := bufio.NewWriter(f)
 	size, err := reader.Size(quitC)
 	if err != nil {

@@ -18,6 +18,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,7 +29,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/swarm/log"
+	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	"github.com/ethereum/go-ethereum/swarm/storage"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 const (
@@ -97,7 +100,7 @@ type ManifestWriter struct {
 }
 
 func (a *Api) NewManifestWriter(addr storage.Address, quitC chan bool) (*ManifestWriter, error) {
-	trie, err := loadManifest(a.fileStore, addr, quitC)
+	trie, err := loadManifest(context.TODO(), a.fileStore, addr, quitC)
 	if err != nil {
 		return nil, fmt.Errorf("error loading manifest %s: %s", addr, err)
 	}
@@ -137,7 +140,7 @@ type ManifestWalker struct {
 }
 
 func (a *Api) NewManifestWalker(addr storage.Address, quitC chan bool) (*ManifestWalker, error) {
-	trie, err := loadManifest(a.fileStore, addr, quitC)
+	trie, err := loadManifest(context.TODO(), a.fileStore, addr, quitC)
 	if err != nil {
 		return nil, fmt.Errorf("error loading manifest %s: %s", addr, err)
 	}
@@ -204,10 +207,16 @@ type manifestTrieEntry struct {
 	subtrie *manifestTrie
 }
 
-func loadManifest(fileStore *storage.FileStore, hash storage.Address, quitC chan bool) (trie *manifestTrie, err error) { // non-recursive, subtrees are downloaded on-demand
+func loadManifest(ctx context.Context, fileStore *storage.FileStore, hash storage.Address, quitC chan bool) (trie *manifestTrie, err error) { // non-recursive, subtrees are downloaded on-demand
+	var sp opentracing.Span
+	ctx, sp = spancontext.StartSpan(
+		ctx,
+		"load.manifest")
+	defer sp.Finish()
+
 	log.Trace("manifest lookup", "key", hash)
 	// retrieve manifest via FileStore
-	manifestReader, isEncrypted := fileStore.Retrieve(hash)
+	manifestReader, isEncrypted := fileStore.Retrieve(ctx, hash)
 	log.Trace("reader retrieved", "key", hash)
 	return readManifest(manifestReader, hash, fileStore, isEncrypted, quitC)
 }
@@ -391,7 +400,7 @@ func (self *manifestTrie) recalcAndStore() error {
 func (self *manifestTrie) loadSubTrie(entry *manifestTrieEntry, quitC chan bool) (err error) {
 	if entry.subtrie == nil {
 		hash := common.Hex2Bytes(entry.Hash)
-		entry.subtrie, err = loadManifest(self.fileStore, hash, quitC)
+		entry.subtrie, err = loadManifest(context.TODO(), self.fileStore, hash, quitC)
 		entry.Hash = "" // might not match, should be recalculated
 	}
 	return

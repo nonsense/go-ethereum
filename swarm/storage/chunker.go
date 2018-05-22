@@ -16,6 +16,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -25,6 +26,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/swarm/log"
+	"github.com/ethereum/go-ethereum/swarm/spancontext"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 /*
@@ -95,6 +98,8 @@ type JoinerParams struct {
 }
 
 type TreeChunker struct {
+	ctx context.Context
+
 	branches int64
 	hashFunc SwarmHasher
 	dataSize int64
@@ -126,8 +131,8 @@ type TreeChunker struct {
 	The chunks are not meant to be validated by the chunker when joining. This
 	is because it is left to the DPA to decide which sources are trusted.
 */
-func TreeJoin(addr Address, getter Getter, depth int) *LazyChunkReader {
-	return NewTreeJoiner(NewJoinerParams(addr, getter, depth, DefaultChunkSize)).Join()
+func TreeJoin(ctx context.Context, addr Address, getter Getter, depth int) *LazyChunkReader {
+	return NewTreeJoiner(ctx, NewJoinerParams(addr, getter, depth, DefaultChunkSize)).Join()
 }
 
 /*
@@ -151,8 +156,9 @@ func NewJoinerParams(addr Address, getter Getter, depth int, chunkSize int64) *J
 	}
 }
 
-func NewTreeJoiner(params *JoinerParams) *TreeChunker {
+func NewTreeJoiner(ctx context.Context, params *JoinerParams) *TreeChunker {
 	self := &TreeChunker{}
+	self.ctx = ctx
 	self.hashSize = params.hashSize
 	self.branches = params.chunkSize / self.hashSize
 	self.addr = params.addr
@@ -377,6 +383,8 @@ func (self *TreeChunker) Append() (Address, func(), error) {
 
 // LazyChunkReader implements LazySectionReader
 type LazyChunkReader struct {
+	ctx context.Context
+
 	key       Address // root key
 	chunkData ChunkData
 	off       int64 // offset
@@ -389,6 +397,7 @@ type LazyChunkReader struct {
 
 func (self *TreeChunker) Join() *LazyChunkReader {
 	return &LazyChunkReader{
+		ctx:       self.ctx,
 		key:       self.addr,
 		chunkSize: self.chunkSize,
 		branches:  self.branches,
@@ -401,6 +410,12 @@ func (self *TreeChunker) Join() *LazyChunkReader {
 // Size is meant to be called on the LazySectionReader
 func (self *LazyChunkReader) Size(quitC chan bool) (n int64, err error) {
 	metrics.GetOrRegisterCounter("lazychunkreader.size", nil).Inc(1)
+
+	//var sp opentracing.Span
+	//self.ctx, sp = spancontext.StartSpan(
+	//self.ctx,
+	//"lcr.size")
+	//defer sp.Finish()
 
 	log.Debug("lazychunkreader.size", "key", self.key)
 	if self.chunkData == nil {
@@ -542,6 +557,12 @@ func (self *LazyChunkReader) Read(b []byte) (read int, err error) {
 	log.Debug("lazychunkreader.read", "key", self.key)
 	metrics.GetOrRegisterCounter("lazychunkreader.read", nil).Inc(1)
 
+	var sp opentracing.Span
+	_, sp = spancontext.StartSpan(
+		self.ctx,
+		"lcr.read")
+	defer sp.Finish()
+
 	read, err = self.ReadAt(b, self.off)
 	if err != nil && err != io.EOF {
 		log.Error("lazychunkreader.readat", "read", read, "err", err)
@@ -560,6 +581,13 @@ var errOffset = errors.New("Seek: invalid offset")
 
 func (s *LazyChunkReader) Seek(offset int64, whence int) (int64, error) {
 	log.Debug("lazychunkreader.seek", "key", s.key, "offset", offset)
+
+	var sp opentracing.Span
+	s.ctx, sp = spancontext.StartSpan(
+		s.ctx,
+		"lcr.seek")
+	defer sp.Finish()
+
 	switch whence {
 	default:
 		return 0, errWhence

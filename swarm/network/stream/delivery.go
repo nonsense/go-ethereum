@@ -17,6 +17,7 @@
 package stream
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -134,7 +135,7 @@ type RetrieveRequestMsg struct {
 	SkipCheck bool
 }
 
-func (d *Delivery) handleRetrieveRequestMsg(sp *Peer, req *RetrieveRequestMsg) error {
+func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *RetrieveRequestMsg) error {
 	log.Trace("received request", "peer", sp.ID(), "hash", req.Addr)
 	handleRetrieveRequestMsgCount.Inc(1)
 
@@ -146,7 +147,7 @@ func (d *Delivery) handleRetrieveRequestMsg(sp *Peer, req *RetrieveRequestMsg) e
 	chunk, created := d.db.GetOrCreateRequest(req.Addr)
 	if chunk.ReqC != nil {
 		if created {
-			if err := d.RequestFromPeers(chunk.Addr[:], true, sp.ID()); err != nil {
+			if err := d.RequestFromPeers(ctx, chunk.Addr[:], true, sp.ID()); err != nil {
 				log.Warn("unable to forward chunk request", "peer", sp.ID(), "key", chunk.Addr, "err", err)
 				chunk.SetErrored(storage.ErrChunkForward)
 				return nil
@@ -197,7 +198,7 @@ type ChunkDeliveryMsg struct {
 	peer  *Peer  // set in handleChunkDeliveryMsg
 }
 
-func (d *Delivery) handleChunkDeliveryMsg(sp *Peer, req *ChunkDeliveryMsg) error {
+func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *ChunkDeliveryMsg) error {
 	req.peer = sp
 	d.receiveC <- req
 	return nil
@@ -236,7 +237,7 @@ R:
 }
 
 // RequestFromPeers sends a chunk retrieve request to
-func (d *Delivery) RequestFromPeers(hash []byte, skipCheck bool, peersToSkip ...discover.NodeID) error {
+func (d *Delivery) RequestFromPeers(ctx context.Context, hash []byte, skipCheck bool, peersToSkip ...discover.NodeID) error {
 	var success bool
 	var err error
 	requestFromPeersCount.Inc(1)
@@ -254,10 +255,10 @@ func (d *Delivery) RequestFromPeers(hash []byte, skipCheck bool, peersToSkip ...
 			return true
 		}
 		// TODO: skip light nodes that do not accept retrieve requests
-		err = sp.SendPriority(&RetrieveRequestMsg{
+		err = sp.SendPriority(ctx, &RetrieveRequestMsg{
 			Addr:      hash,
 			SkipCheck: skipCheck,
-		}, Top)
+		})
 		if err != nil {
 			return true
 		}

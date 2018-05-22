@@ -36,8 +36,10 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/multihash"
+	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	"github.com/ethereum/go-ethereum/swarm/storage/mru"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 type ErrResourceReturn struct {
@@ -237,7 +239,7 @@ func (self *Api) Upload(uploadDir, index string, toEncrypt bool) (hash string, e
 }
 
 // FileStore reader API
-func (self *Api) Retrieve(addr storage.Address) (reader storage.LazySectionReader, isEncrypted bool) {
+func (self *Api) Retrieve(ctx context.Context, addr storage.Address) (reader storage.LazySectionReader, isEncrypted bool) {
 	return self.fileStore.Retrieve(addr)
 }
 
@@ -249,9 +251,15 @@ func (self *Api) Store(data io.Reader, size int64, toEncrypt bool) (addr storage
 type ErrResolve error
 
 // DNS Resolver
-func (self *Api) Resolve(uri *URI) (storage.Address, error) {
+func (self *Api) Resolve(ctx context.Context, uri *URI) (storage.Address, error) {
 	apiResolveCount.Inc(1)
 	log.Trace("resolving", "uri", uri.Addr)
+
+	var sp opentracing.Span
+	ctx, sp = spancontext.StartSpan(
+		ctx,
+		"api.resolve")
+	defer sp.Finish()
 
 	// if the URI is immutable, check if the address looks like a hash
 	if uri.Immutable() {
@@ -311,10 +319,17 @@ func (self *Api) Put(content, contentType string, toEncrypt bool) (k storage.Add
 // Get uses iterative manifest retrieval and prefix matching
 // to resolve basePath to content using FileStore retrieve
 // it returns a section reader, mimeType, status, the key of the actual content and an error
-func (self *Api) Get(manifestAddr storage.Address, path string) (reader storage.LazySectionReader, mimeType string, status int, contentAddr storage.Address, err error) {
+func (self *Api) Get(ctx context.Context, manifestAddr storage.Address, path string) (reader storage.LazySectionReader, mimeType string, status int, contentAddr storage.Address, err error) {
 	log.Debug("api.get", "key", manifestAddr, "path", path)
 	apiGetCount.Inc(1)
-	trie, err := loadManifest(self.fileStore, manifestAddr, nil)
+
+	var sp opentracing.Span
+	ctx, sp = spancontext.StartSpan(
+		ctx,
+		"api.get")
+	defer sp.Finish()
+
+	trie, err := loadManifest(ctx, self.fileStore, manifestAddr, nil)
 	if err != nil {
 		apiGetNotFound.Inc(1)
 		status = http.StatusNotFound
@@ -381,7 +396,7 @@ func (self *Api) Get(manifestAddr storage.Address, path string) (reader storage.
 				log.Trace("resource is multihash", "key", manifestAddr)
 
 				// get the manifest the multihash digest points to
-				trie, err := loadManifest(self.fileStore, manifestAddr, nil)
+				trie, err := loadManifest(ctx, self.fileStore, manifestAddr, nil)
 				if err != nil {
 					apiGetNotFound.Inc(1)
 					status = http.StatusNotFound
@@ -416,7 +431,7 @@ func (self *Api) Get(manifestAddr storage.Address, path string) (reader storage.
 		} else {
 			mimeType = entry.ContentType
 			log.Debug("content lookup key", "key", contentAddr, "mimetype", mimeType)
-			reader, _ = self.fileStore.Retrieve(contentAddr)
+			reader, _ = self.fileStore.Retrieve(ctx, contentAddr)
 		}
 	} else {
 		// no entry found
@@ -431,7 +446,7 @@ func (self *Api) Get(manifestAddr storage.Address, path string) (reader storage.
 func (self *Api) Modify(addr storage.Address, path, contentHash, contentType string) (storage.Address, error) {
 	apiModifyCount.Inc(1)
 	quitC := make(chan bool)
-	trie, err := loadManifest(self.fileStore, addr, quitC)
+	trie, err := loadManifest(context.TODO(), self.fileStore, addr, quitC)
 	if err != nil {
 		apiModifyFail.Inc(1)
 		return nil, err
@@ -462,7 +477,7 @@ func (self *Api) AddFile(mhash, path, fname string, content []byte, nameresolver
 		apiAddFileFail.Inc(1)
 		return nil, "", err
 	}
-	mkey, err := self.Resolve(uri)
+	mkey, err := self.Resolve(context.TODO(), uri)
 	if err != nil {
 		apiAddFileFail.Inc(1)
 		return nil, "", err
@@ -512,7 +527,7 @@ func (self *Api) RemoveFile(mhash, path, fname string, nameresolver bool) (strin
 		apiRmFileFail.Inc(1)
 		return "", err
 	}
-	mkey, err := self.Resolve(uri)
+	mkey, err := self.Resolve(context.TODO(), uri)
 	if err != nil {
 		apiRmFileFail.Inc(1)
 		return "", err
@@ -555,7 +570,7 @@ func (self *Api) AppendFile(mhash, path, fname string, existingSize int64, conte
 
 	buf := make([]byte, buffSize)
 
-	oldReader, _ := self.Retrieve(oldAddr)
+	oldReader, _ := self.Retrieve(context.TODO(), oldAddr)
 	io.ReadAtLeast(oldReader, buf, int(offset))
 
 	newReader := bytes.NewReader(content)
@@ -578,7 +593,7 @@ func (self *Api) AppendFile(mhash, path, fname string, existingSize int64, conte
 		apiAppendFileFail.Inc(1)
 		return nil, "", err
 	}
-	mkey, err := self.Resolve(uri)
+	mkey, err := self.Resolve(context.TODO(), uri)
 	if err != nil {
 		apiAppendFileFail.Inc(1)
 		return nil, "", err
@@ -632,13 +647,13 @@ func (self *Api) BuildDirectoryTree(mhash string, nameresolver bool) (addr stora
 	if err != nil {
 		return nil, nil, err
 	}
-	addr, err = self.Resolve(uri)
+	addr, err = self.Resolve(context.TODO(), uri)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	quitC := make(chan bool)
-	rootTrie, err := loadManifest(self.fileStore, addr, quitC)
+	rootTrie, err := loadManifest(context.TODO(), self.fileStore, addr, quitC)
 	if err != nil {
 		return nil, nil, fmt.Errorf("can't load manifest %v: %v", addr.String(), err)
 	}
@@ -719,7 +734,7 @@ func (self *Api) ResourceIsValidated() bool {
 }
 
 func (self *Api) ResolveResourceManifest(addr storage.Address) (storage.Address, error) {
-	trie, err := loadManifest(self.fileStore, addr, nil)
+	trie, err := loadManifest(context.TODO(), self.fileStore, addr, nil)
 	if err != nil {
 		return nil, fmt.Errorf("cannot load resource manifest: %v", err)
 	}
