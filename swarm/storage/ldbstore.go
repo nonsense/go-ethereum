@@ -315,12 +315,16 @@ func (s *LDBStore) Export(out io.Writer) (int64, error) {
 		decodeIndex(it.Value(), &index)
 		po := s.po(hash)
 		datakey := getDataKey(index.Idx, po)
-		log.Trace("store.export", "dkey", fmt.Sprintf("%x", datakey), "dataidx", index.Idx, "po", po)
 		data, err := s.db.Get(datakey)
 		if err != nil {
 			log.Warn(fmt.Sprintf("Chunk %x found but could not be accessed: %v", key[:], err))
 			continue
 		}
+		c := &Chunk{}
+		decodeData(data, c)
+
+		cs := int64(binary.LittleEndian.Uint64(c.SData[:8]))
+		log.Trace("store.export", "key", fmt.Sprintf("%x", key[:]), "dkey", fmt.Sprintf("%x", datakey), "dataidx", index.Idx, "po", po, "len data", len(data), "len sdata", len(c.SData), "first8", cs, "sdata", string(c.SData))
 
 		hdr := &tar.Header{
 			Name: hex.EncodeToString(hash),
