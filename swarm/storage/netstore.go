@@ -18,6 +18,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/swarm/log"
@@ -25,38 +26,58 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-var RemoteFetch func(ref Address, ch chan Chunk) (interface{}, error)
+var RemoteFetch func(ref Address, fi *FetcherItem) error
+
+// FetcherItem are stored in fetchers map and signal to all interested parties if a given chunk is delivered
+// the mutex controls who closes the channel, and make sure we close the channel only once
+type FetcherItem struct {
+	Delivered chan struct{} // when closed, it means that the chunk is delivered
+	Mu        sync.Mutex
+}
+
+func (fi *FetcherItem) SafeClose() {
+	fi.Mu.Lock()
+	_, ok := <-fi.Delivered
+	if !ok {
+		close(fi.Delivered)
+	}
+	fi.Mu.Unlock()
+}
 
 // NetStore is an extension of LocalStore
 // it implements the ChunkStore interface
 // on request it initiates remote cloud retrieval
 type NetStore struct {
-	store    LocalStore
-	fetchers sync.Map
+	store      *LocalStore
+	fetchers   sync.Map
+	fetchersMu sync.Mutex
 }
 
 // NewNetStore creates a new NetStore object using the given local store. newFetchFunc is a
 // constructor function that can create a fetch function for a specific chunk address.
-func NewNetStore(store LocalStore) *NetStore {
+func NewNetStore(store *LocalStore) *NetStore {
 	return &NetStore{
-		store:    store,
-		fetchers: sync.Map{},
+		store:      store,
+		fetchers:   sync.Map{},
+		fetchersMu: sync.Mutex{},
 	}
 }
 
 // Put stores a chunk in localstore, and delivers to all requestor peers using the fetcher stored in
 // the fetchers cache
 func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
-	// put to the chunk to the store, there should be no error
+	// put the chunk to the localstore, there should be no error
 	err := n.store.Put(ctx, chunk)
 	if err != nil {
 		return err
 	}
 
-	// return response to RemoteGet
-	ch, ok := n.fetchers.Load(chunk.Address().String())
+	// notify RemoteGet about a chunk being stored
+	fi, ok := n.fetchers.Load(chunk.Address().String())
 	if ok {
-		ch.(chan Chunk) <- chunk
+		// we need SafeClose, because it is possible for a chunk to both be
+		// delivered through syncing and through a retrieve request
+		fi.(*FetcherItem).SafeClose()
 	}
 
 	return nil
@@ -85,17 +106,28 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 			log.Error("got error from LocalStore other than leveldb.ErrNotFound or ErrChunkNotFound", "err", err)
 		}
 
-		// TODO: investigate Forget()
 		var requestGroup singleflight.Group
 
 		v, err, _ := requestGroup.Do(ref.String(), func() (interface{}, error) {
-			ch := make(chan Chunk)
-			n.fetchers.Store(ref.String(), ch)
+			fi, _ := n.fetchers.LoadOrStore(ref.String(), FetcherItem{make(chan struct{}), sync.Mutex{}})
 			defer func() {
+				n.fetchersMu.Lock()
 				n.fetchers.Delete(ref.String())
+				n.fetchersMu.Unlock()
 			}()
 
-			return RemoteFetch(ref, ch)
+			err := RemoteFetch(ref, fi.(*FetcherItem))
+			if err != nil {
+				return nil, err
+			}
+
+			chunk, err := n.store.Get(ctx, ref)
+			if err != nil {
+				log.Error(err.Error())
+				return nil, errors.New("item should have been in localstore, but it is not")
+			}
+
+			return chunk, nil
 		})
 
 		if err != nil {
@@ -113,4 +145,16 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 // database to return if it has a chunk or not.
 func (n *NetStore) Has(ctx context.Context, ref Address) bool {
 	return n.store.Has(ctx, ref)
+}
+
+func (n *NetStore) HasWithCallback(ctx context.Context, ref Address) (bool, *FetcherItem) {
+	n.fetchersMu.Lock()
+	defer n.fetchersMu.Unlock()
+
+	if n.store.Has(ctx, ref) {
+		return true, nil
+	}
+
+	fi, _ := n.fetchers.LoadOrStore(ref.String(), FetcherItem{make(chan struct{}), sync.Mutex{}})
+	return false, fi.(*FetcherItem)
 }
