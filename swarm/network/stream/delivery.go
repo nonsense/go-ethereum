@@ -280,7 +280,7 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 
 		// skip peers that we have already tried
 		if req.SkipPeer(id.String()) {
-			log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
+			log.Trace("Delivery.RequestFromPeers: skip peer", "peer", id, "ref", req.Addr.String())
 			//TODO: remove sleep later
 			time.Sleep(200 * time.Millisecond)
 			return true
@@ -304,8 +304,9 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 	// this span will finish only when delivery is handled (or times out)
 	log.Trace("sending retrieve request", "ref", req.Addr, "peer", sp.ID().String())
 	err := sp.Send(ctx, &RetrieveRequestMsg{
-		Addr:     req.Addr,
-		HopCount: req.HopCount,
+		Addr:      req.Addr,
+		HopCount:  req.HopCount,
+		SkipCheck: true, // this has something to do with old syncing
 	})
 	if err != nil {
 		return nil, err

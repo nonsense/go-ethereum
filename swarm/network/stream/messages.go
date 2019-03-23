@@ -228,13 +228,17 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 		hash := hashes[i : i+HashSize]
 
 		if wait := c.NeedData(ctx, hash); wait != nil {
+			log.Trace("need data", "ref", hash)
 			ctr++
 			want.Set(i/HashSize, true)
 			// create request and wait until the chunk data arrives and is stored
 			go func(w func(context.Context) error) {
+				log.Trace("waiting for", "ref", hash)
 				select {
 				case errC <- w(ctx):
+					log.Trace("done waiting for, w(ctx) returned", "ref", hash)
 				case <-ctx.Done():
+					log.Trace("done waiting for, context done", "ref", hash)
 				}
 			}(wait)
 		}

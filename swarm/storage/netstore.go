@@ -68,6 +68,8 @@ func NewNetStore(store *LocalStore) *NetStore {
 // Put stores a chunk in localstore, and delivers to all requestor peers using the fetcher stored in
 // the fetchers cache
 func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
+	log.Trace("netstore.put", "ref", chunk.Address().String())
+
 	// put the chunk to the localstore, there should be no error
 	err := n.store.Put(ctx, chunk)
 	if err != nil {
@@ -103,6 +105,8 @@ func (n *NetStore) Close() {
 // Get retrieves a chunk
 // If it is not found in the LocalStore then it uses RemoteGet to fetch from the network.
 func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
+	log.Trace("netstore.get", "ref", ref.String())
+
 	var sp opentracing.Span
 	ctx, sp = spancontext.StartSpan(
 		ctx,
@@ -157,6 +161,12 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 
 		return v.(Chunk), nil
 	}
+
+	var ssp opentracing.Span
+	ctx, ssp = spancontext.StartSpan(
+		ctx,
+		"localstore.get")
+	defer ssp.Finish()
 
 	return chunk, nil
 }
