@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	opentracing "github.com/opentracing/opentracing-go"
@@ -118,6 +119,7 @@ func (n *NetStore) Close() {
 // Get retrieves a chunk
 // If it is not found in the LocalStore then it uses RemoteGet to fetch from the network.
 func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
+	metrics.GetOrRegisterCounter("netstore.get", nil).Inc(1)
 	rid := getGID()
 
 	log.Trace("netstore.get", "ref", ref.String(), "rid", rid)

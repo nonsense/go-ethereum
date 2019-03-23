@@ -271,6 +271,7 @@ func getGID() uint64 {
 // RequestFromPeers sends a chunk retrieve request to a peer
 // The closest peer that hasn't already been sent to is chosen
 func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (*enode.ID, error) {
+	time.Sleep(50 * time.Millisecond)
 	ctx, osp := spancontext.StartSpan(
 		ctx,
 		"request.from.peers")

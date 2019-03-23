@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/storage"
@@ -64,6 +65,7 @@ func getGID() uint64 {
 }
 
 func RemoteFetch(ctx context.Context, ref storage.Address, fi *storage.FetcherItem) error {
+	metrics.GetOrRegisterCounter("remote.fetch", nil).Inc(1)
 	req := NewRequest(ref)
 	rid := getGID()
 
