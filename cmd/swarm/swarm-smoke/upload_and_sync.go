@@ -169,6 +169,7 @@ func uploadAndSync(c *cli.Context, randomBytes []byte, tuid string) error {
 				start := time.Now()
 				err := fetch(hash, endpoint, fhash, ruid, tuid)
 				if err != nil {
+					time.Sleep(2 * time.Second)
 					continue
 				}
 				ended := time.Since(start)

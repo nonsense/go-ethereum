@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/enode"
@@ -280,6 +281,8 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 		// skip peers that we have already tried
 		if req.SkipPeer(id.String()) {
 			log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
+			//TODO: remove sleep later
+			time.Sleep(200 * time.Millisecond)
 			return true
 		}
 
@@ -299,6 +302,7 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 
 	// setting this value in the context creates a new span that can persist across the sendpriority queue and the network roundtrip
 	// this span will finish only when delivery is handled (or times out)
+	log.Trace("sending retrieve request", "ref", req.Addr, "peer", sp.ID().String())
 	err := sp.Send(ctx, &RetrieveRequestMsg{
 		Addr:     req.Addr,
 		HopCount: req.HopCount,

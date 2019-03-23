@@ -81,6 +81,7 @@ func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
 		// delivered through syncing and through a retrieve request
 		fii := fi.(FetcherItem)
 		fii.SafeClose()
+		log.Trace("netstore.put chunk delivered", "ref", chunk.Address().String())
 	}
 
 	return nil
@@ -150,7 +151,7 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 		})
 
 		if err != nil {
-			log.Error(err.Error())
+			log.Error(err.Error(), "ref", ref)
 			return nil, err
 		}
 
