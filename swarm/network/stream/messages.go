@@ -236,9 +236,9 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 				log.Trace("waiting for", "ref", hash)
 				select {
 				case errC <- w(ctx):
-					log.Trace("done waiting for, w(ctx) returned", "ref", hash)
+					log.Trace("done waiting for, w(ctx) returned", "ref", fmt.Sprintf("%x", hash))
 				case <-ctx.Done():
-					log.Trace("done waiting for, context done", "ref", hash)
+					log.Trace("done waiting for, context done", "ref", fmt.Sprintf("%x", hash))
 				}
 			}(wait)
 		}
@@ -250,12 +250,12 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 			select {
 			case err := <-errC:
 				if err != nil {
-					log.Debug("client.handleOfferedHashesMsg() error waiting for chunk, dropping peer", "peer", p.ID(), "err", err)
-					p.Drop(err)
+					log.Error("handleOfferedHashesMsg() error waiting for chunk", "peer", p.ID(), "err", err)
+					//p.Drop(err)
 					return
 				}
 			case <-ctx.Done():
-				log.Debug("client.handleOfferedHashesMsg() context done", "ctx.Err()", ctx.Err())
+				log.Debug("handleOfferedHashesMsg() context done", "ctx.Err()", ctx.Err())
 				return
 			case <-c.quit:
 				log.Debug("client.handleOfferedHashesMsg() quit")
@@ -293,7 +293,7 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 		case err := <-c.next:
 			if err != nil {
 				log.Warn("c.next error dropping peer", "err", err)
-				p.Drop(err)
+				//p.Drop(err)
 				return
 			}
 		case <-c.quit:
