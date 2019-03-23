@@ -22,11 +22,13 @@ import (
 	"sync"
 
 	"github.com/ethereum/go-ethereum/swarm/log"
+	"github.com/ethereum/go-ethereum/swarm/spancontext"
+	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/sync/singleflight"
 )
 
-var RemoteFetch func(ref Address, fi *FetcherItem) error
+var RemoteFetch func(ctx context.Context, ref Address, fi *FetcherItem) error
 
 // FetcherItem are stored in fetchers map and signal to all interested parties if a given chunk is delivered
 // the mutex controls who closes the channel, and make sure we close the channel only once
@@ -100,6 +102,12 @@ func (n *NetStore) Close() {
 // Get retrieves a chunk
 // If it is not found in the LocalStore then it uses RemoteGet to fetch from the network.
 func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
+	var sp opentracing.Span
+	ctx, sp = spancontext.StartSpan(
+		ctx,
+		"netstore.get")
+	defer sp.Finish()
+
 	chunk, err := n.store.Get(ctx, ref)
 	if err != nil {
 		// TODO: fix comparison - we should be comparing against leveldb.ErrNotFound, this error should be wrapped.
@@ -127,7 +135,7 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 				n.fetchersMu.Unlock()
 			}()
 
-			err := RemoteFetch(ref, &fi)
+			err := RemoteFetch(ctx, ref, &fi)
 			if err != nil {
 				return nil, err
 			}

@@ -50,11 +50,11 @@ type Request struct {
 	HopCount    uint8           // number of forwarded requests (hops)
 }
 
-func RemoteFetch(ref storage.Address, fi *storage.FetcherItem) error {
+func RemoteFetch(ctx context.Context, ref storage.Address, fi *storage.FetcherItem) error {
 	req := NewRequest(ref)
 
 	// initial call to search for chunk
-	currentPeer, err := RemoteGet(context.TODO(), req)
+	currentPeer, err := RemoteGet(ctx, req)
 	if err != nil {
 		return err
 	}

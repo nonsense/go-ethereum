@@ -258,6 +258,13 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *Ch
 // RequestFromPeers sends a chunk retrieve request to a peer
 // The closest peer that hasn't already been sent to is chosen
 func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (*enode.ID, error) {
+	ctx, osp := spancontext.StartSpan(
+		ctx,
+		"request.from.peers")
+	defer osp.Finish()
+
+	osp.LogFields(olog.String("ref", req.Addr.String()))
+
 	requestFromPeersCount.Inc(1)
 
 	var sp *Peer
@@ -292,14 +299,10 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 
 	// setting this value in the context creates a new span that can persist across the sendpriority queue and the network roundtrip
 	// this span will finish only when delivery is handled (or times out)
-	ctx = context.WithValue(ctx, tracing.StoreLabelId, "stream.send.request")
-	ctx = context.WithValue(ctx, tracing.StoreLabelMeta, fmt.Sprintf("%v.%v", sp.ID(), req.Addr))
-	log.Trace("request.from.peers", "peer", sp.ID(), "ref", req.Addr)
-	err := sp.SendPriority(ctx, &RetrieveRequestMsg{
-		Addr: req.Addr,
-		//SkipCheck: req.SkipCheck,
+	err := sp.Send(ctx, &RetrieveRequestMsg{
+		Addr:     req.Addr,
 		HopCount: req.HopCount,
-	}, Top)
+	})
 	if err != nil {
 		return nil, err
 	}
