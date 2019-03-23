@@ -140,13 +140,13 @@ type RetrieveRequestMsg struct {
 }
 
 func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *RetrieveRequestMsg) error {
-	log.Trace("received request", "peer", sp.ID(), "hash", req.Addr)
+	log.Trace("handle retrieve request", "peer", sp.ID(), "hash", req.Addr)
 	handleRetrieveRequestMsgCount.Inc(1)
 
 	var osp opentracing.Span
 	ctx, osp = spancontext.StartSpan(
 		ctx,
-		"stream.handle.retrieve")
+		"handle.retrieve.request")
 
 	osp.LogFields(olog.String("ref", req.Addr.String()))
 
