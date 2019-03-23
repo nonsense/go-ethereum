@@ -77,7 +77,8 @@ func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
 	if ok {
 		// we need SafeClose, because it is possible for a chunk to both be
 		// delivered through syncing and through a retrieve request
-		fi.(*FetcherItem).SafeClose()
+		fii := fi.(FetcherItem)
+		fii.SafeClose()
 	}
 
 	return nil
@@ -116,7 +117,9 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 				n.fetchersMu.Unlock()
 			}()
 
-			err := RemoteFetch(ref, fi.(*FetcherItem))
+			r := fi.(FetcherItem)
+
+			err := RemoteFetch(ref, &r)
 			if err != nil {
 				return nil, err
 			}
@@ -156,5 +159,6 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address) (bool, *Fet
 	}
 
 	fi, _ := n.fetchers.LoadOrStore(ref.String(), FetcherItem{make(chan struct{}), sync.Mutex{}})
-	return false, fi.(*FetcherItem)
+	r := fi.(FetcherItem)
+	return false, &r
 }
