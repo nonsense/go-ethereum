@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
-	"time"
 
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/enode"
@@ -271,7 +270,6 @@ func getGID() uint64 {
 // RequestFromPeers sends a chunk retrieve request to a peer
 // The closest peer that hasn't already been sent to is chosen
 func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (*enode.ID, error) {
-	time.Sleep(50 * time.Millisecond)
 	ctx, osp := spancontext.StartSpan(
 		ctx,
 		"request.from.peers")
@@ -295,8 +293,6 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 		if req.SkipPeer(id.String()) {
 			rid := getGID()
 			log.Trace("Delivery.RequestFromPeers: skip peer", "peer", id, "ref", req.Addr.String(), "rid", rid)
-			//TODO: remove sleep later
-			time.Sleep(200 * time.Millisecond)
 			return true
 		}
 

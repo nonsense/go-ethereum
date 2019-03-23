@@ -91,8 +91,6 @@ func RemoteFetch(ctx context.Context, ref storage.Address, fi *storage.FetcherIt
 			log.Trace("remote.fetch, next remote get", "ref", ref, "rid", rid)
 			currentPeer, err := RemoteGet(context.TODO(), req)
 			if err != nil {
-				//TODO: remove sleep
-				time.Sleep(200 * time.Millisecond)
 				log.Error(err.Error(), "ref", ref, "rid", rid)
 				return err
 			}
