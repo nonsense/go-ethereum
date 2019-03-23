@@ -17,9 +17,12 @@
 package stream
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/metrics"
@@ -182,6 +185,7 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 			syncing := false
 			osp.LogFields(olog.Bool("skipCheck", true))
 
+			log.Trace("retrieve request, delivery", "ref", req.Addr, "peer", sp.ID())
 			err = sp.Deliver(ctx, chunk, s.priority, syncing)
 			if err != nil {
 				log.Warn("ERROR in handleRetrieveRequestMsg", "err", err)
@@ -222,14 +226,13 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *Ch
 	ctx, osp = spancontext.StartSpan(
 		ctx,
 		"handle.chunk.delivery")
+	rid := getGID()
 
 	processReceivedChunksCount.Inc(1)
 
 	// retrieve the span for the originating retrieverequest
 	spanId := fmt.Sprintf("stream.send.request.%v.%v", sp.ID(), req.Addr)
 	span := tracing.ShiftSpanByKey(spanId)
-
-	log.Trace("handle.chunk.delivery", "ref", req.Addr, "from peer", sp.ID())
 
 	go func() {
 		defer osp.Finish()
@@ -239,7 +242,7 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *Ch
 			defer span.Finish()
 		}
 
-		log.Trace("handle.chunk.delivery", "put", req.Addr)
+		log.Trace("handle.chunk.delivery", "ref", req.Addr, "peer", sp.ID(), "rid", rid)
 
 		err := d.chunkStore.Put(ctx, storage.NewChunk(req.Addr, req.SData))
 		if err != nil {
@@ -250,10 +253,19 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *Ch
 			log.Error("err", err.Error(), "peer", sp.ID(), "chunk", req.Addr)
 		}
 
-		log.Trace("handle.chunk.delivery", "done put", req.Addr, "err", err)
+		log.Trace("handle.chunk.delivery, done put", "ref", req.Addr, "peer", sp.ID(), "err", err, "rid", rid)
 	}()
 
 	return nil
+}
+
+func getGID() uint64 {
+	b := make([]byte, 64)
+	b = b[:runtime.Stack(b, false)]
+	b = bytes.TrimPrefix(b, []byte("goroutine "))
+	b = b[:bytes.IndexByte(b, ' ')]
+	n, _ := strconv.ParseUint(string(b), 10, 64)
+	return n
 }
 
 // RequestFromPeers sends a chunk retrieve request to a peer
@@ -280,7 +292,8 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 
 		// skip peers that we have already tried
 		if req.SkipPeer(id.String()) {
-			log.Trace("Delivery.RequestFromPeers: skip peer", "peer", id, "ref", req.Addr.String())
+			rid := getGID()
+			log.Trace("Delivery.RequestFromPeers: skip peer", "peer", id, "ref", req.Addr.String(), "rid", rid)
 			//TODO: remove sleep later
 			time.Sleep(200 * time.Millisecond)
 			return true

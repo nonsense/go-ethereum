@@ -17,8 +17,11 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"runtime"
+	"strconv"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/swarm/log"
@@ -27,6 +30,15 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/sync/singleflight"
 )
+
+func getGID() uint64 {
+	b := make([]byte, 64)
+	b = b[:runtime.Stack(b, false)]
+	b = bytes.TrimPrefix(b, []byte("goroutine "))
+	b = b[:bytes.IndexByte(b, ' ')]
+	n, _ := strconv.ParseUint(string(b), 10, 64)
+	return n
+}
 
 var RemoteFetch func(ctx context.Context, ref Address, fi *FetcherItem) error
 
@@ -68,7 +80,8 @@ func NewNetStore(store *LocalStore) *NetStore {
 // Put stores a chunk in localstore, and delivers to all requestor peers using the fetcher stored in
 // the fetchers cache
 func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
-	log.Trace("netstore.put", "ref", chunk.Address().String())
+	rid := getGID()
+	log.Trace("netstore.put", "ref", chunk.Address().String(), "rid", rid)
 
 	// put the chunk to the localstore, there should be no error
 	err := n.store.Put(ctx, chunk)
@@ -83,7 +96,7 @@ func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
 		// delivered through syncing and through a retrieve request
 		fii := fi.(FetcherItem)
 		fii.SafeClose()
-		log.Trace("netstore.put chunk delivered", "ref", chunk.Address().String())
+		log.Trace("netstore.put chunk delivered", "ref", chunk.Address().String(), "rid", rid)
 	}
 
 	return nil
@@ -105,7 +118,9 @@ func (n *NetStore) Close() {
 // Get retrieves a chunk
 // If it is not found in the LocalStore then it uses RemoteGet to fetch from the network.
 func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
-	log.Trace("netstore.get", "ref", ref.String())
+	rid := getGID()
+
+	log.Trace("netstore.get", "ref", ref.String(), "rid", rid)
 
 	var sp opentracing.Span
 	ctx, sp = spancontext.StartSpan(
@@ -122,9 +137,11 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 
 		var requestGroup singleflight.Group
 
+		log.Trace("netstore.chunk-not-in-localstore", "ref", ref.String(), "rid", rid)
 		v, err, _ := requestGroup.Do(ref.String(), func() (interface{}, error) {
 			fi := FetcherItem{make(chan struct{}), sync.Mutex{}}
 			lfi, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
+			log.Trace("netstore.loadorstore", "ref", ref.String(), "loaded", loaded, "rid", rid)
 			if loaded {
 				var ok bool
 				fi, ok = lfi.(FetcherItem)
@@ -153,13 +170,19 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 
 			return chunk, nil
 		})
+		res, ok := v.(Chunk)
+		if !ok && err == nil {
+			panic("not ok and no error?")
+		}
+		log.Trace("netstore.singleflight returned", "ref", ref.String(), "err", err, "rid", rid)
 
 		if err != nil {
 			log.Error(err.Error(), "ref", ref)
 			return nil, err
 		}
+		log.Trace("netstore return", "ref", ref.String(), "chunk len", len(res.Data()), "rid", rid)
 
-		return v.(Chunk), nil
+		return res, nil
 	}
 
 	var ssp opentracing.Span
@@ -187,6 +210,7 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address) (bool, *Fet
 
 	fi := FetcherItem{make(chan struct{}), sync.Mutex{}}
 	v, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
+	log.Trace("netstore.has-with-callback.loadorstore", "ref", ref.String(), "loaded", loaded)
 	if loaded {
 		fi = v.(FetcherItem)
 	}

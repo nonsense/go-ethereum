@@ -112,13 +112,17 @@ func (ls *LocalStore) isValid(chunk Chunk) bool {
 // After the LDBStore.Put, it is ensured that the MemStore
 // contains the chunk with the same data, but nil ReqC channel.
 func (ls *LocalStore) Put(ctx context.Context, chunk Chunk) error {
+	log.Trace("localstore.put", "ref", chunk.Address().String())
+
 	if !ls.isValid(chunk) {
+		log.Error("localstore.invalid chunk", "ref", chunk.Address().String())
 		return ErrChunkInvalid
 	}
 
-	log.Trace("localstore.put", "key", chunk.Address())
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
+
+	log.Trace("localstore.put after lock", "ref", chunk.Address().String())
 
 	_, err := ls.memStore.Get(ctx, chunk.Address())
 	if err == nil {

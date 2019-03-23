@@ -228,12 +228,12 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 		hash := hashes[i : i+HashSize]
 
 		if wait := c.NeedData(ctx, hash); wait != nil {
-			log.Trace("need data", "ref", hash)
+			log.Trace("need data", "ref", fmt.Sprintf("%x", hash))
 			ctr++
 			want.Set(i/HashSize, true)
 			// create request and wait until the chunk data arrives and is stored
 			go func(w func(context.Context) error) {
-				log.Trace("waiting for", "ref", hash)
+				log.Trace("waiting for", "ref", fmt.Sprintf("%x", hash))
 				select {
 				case errC <- w(ctx):
 					log.Trace("done waiting for, w(ctx) returned", "ref", fmt.Sprintf("%x", hash))
@@ -362,6 +362,7 @@ func (p *Peer) handleWantedHashesMsg(ctx context.Context, req *WantedHashesMsg) 
 			}
 			chunk := storage.NewChunk(hash, data)
 			syncing := true
+			log.Trace("wanted hashes, deliver", "ref", chunk.Address().String(), "peer", p.ID())
 			if err := p.Deliver(ctx, chunk, s.priority, syncing); err != nil {
 				return err
 			}

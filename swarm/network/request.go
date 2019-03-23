@@ -17,12 +17,16 @@
 package network
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 )
 
@@ -50,10 +54,21 @@ type Request struct {
 	HopCount    uint8           // number of forwarded requests (hops)
 }
 
+func getGID() uint64 {
+	b := make([]byte, 64)
+	b = b[:runtime.Stack(b, false)]
+	b = bytes.TrimPrefix(b, []byte("goroutine "))
+	b = b[:bytes.IndexByte(b, ' ')]
+	n, _ := strconv.ParseUint(string(b), 10, 64)
+	return n
+}
+
 func RemoteFetch(ctx context.Context, ref storage.Address, fi *storage.FetcherItem) error {
 	req := NewRequest(ref)
+	rid := getGID()
 
 	// initial call to search for chunk
+	log.Trace("remote.fetch, initial remote get", "ref", ref, "rid", rid)
 	currentPeer, err := RemoteGet(ctx, req)
 	if err != nil {
 		return err
@@ -68,13 +83,19 @@ func RemoteFetch(ctx context.Context, ref storage.Address, fi *storage.FetcherIt
 	for {
 		select {
 		case <-fi.Delivered:
+			log.Trace("remote.fetch, chunk delivered", "ref", ref, "rid", rid)
 			return nil
 		case <-time.After(SearchTimeout):
+			log.Trace("remote.fetch, next remote get", "ref", ref, "rid", rid)
 			currentPeer, err := RemoteGet(context.TODO(), req)
 			if err != nil {
+				//TODO: remove sleep
+				time.Sleep(200 * time.Millisecond)
+				log.Error(err.Error(), "ref", ref, "rid", rid)
 				return err
 			}
 			// add peer to the set of peers to skip from now
+			log.Trace("remote.fetch, adding peer to skip", "ref", ref, "peer", currentPeer.String(), "rid", rid)
 			req.PeersToSkip.Store(currentPeer.String(), time.Now())
 		case <-gt:
 			return errors.New("chunk couldnt be retrieved from remote nodes")
