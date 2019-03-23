@@ -50,8 +50,8 @@ type FetcherItem struct {
 	once      sync.Once
 }
 
-func NewFetcherItem() FetcherItem {
-	return FetcherItem{make(chan struct{}), sync.Once{}}
+func NewFetcherItem() *FetcherItem {
+	return &FetcherItem{make(chan struct{}), sync.Once{}}
 }
 
 func (fi *FetcherItem) SafeClose() {
@@ -147,7 +147,7 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 			log.Trace("netstore.loadorstore", "ref", ref.String(), "loaded", loaded, "rid", rid)
 			if loaded {
 				var ok bool
-				fi, ok = lfi.(FetcherItem)
+				fi, ok = lfi.(*FetcherItem)
 				if !ok {
 					log.Error("entry in n.fetchers is not a FetcherItem")
 					panic("wtf")
@@ -160,7 +160,7 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 				n.fetchersMu.Unlock()
 			}()
 
-			err := RemoteFetch(ctx, ref, &fi)
+			err := RemoteFetch(ctx, ref, fi)
 			if err != nil {
 				return nil, err
 			}
@@ -215,7 +215,7 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address) (bool, *Fet
 	v, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
 	log.Trace("netstore.has-with-callback.loadorstore", "ref", ref.String(), "loaded", loaded)
 	if loaded {
-		fi = v.(FetcherItem)
+		fi = v.(*FetcherItem)
 	}
-	return false, &fi
+	return false, fi
 }
