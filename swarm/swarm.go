@@ -149,7 +149,7 @@ func NewSwarm(config *api.Config, mockStore *mock.NodeStore) (self *Swarm, err e
 		return nil, err
 	}
 
-	self.netStore, err = storage.NewNetStore(lstore, nil)
+	self.netStore, err = storage.NewNetStore(lstore)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func NewSwarm(config *api.Config, mockStore *mock.NodeStore) (self *Swarm, err e
 		network.NewKadParams(),
 	)
 	delivery := stream.NewDelivery(to, self.netStore)
-	self.netStore.NewNetFetcherFunc = network.NewFetcherFactory(delivery.RequestFromPeers, config.DeliverySkipCheck).New
+	network.RemoteGet = delivery.RequestFromPeers
 
 	if config.SwapEnabled {
 		balancesStore, err := state.NewDBStore(filepath.Join(config.Path, "balances.db"))

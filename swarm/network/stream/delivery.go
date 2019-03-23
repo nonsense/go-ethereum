@@ -47,12 +47,12 @@ var (
 )
 
 type Delivery struct {
-	chunkStore storage.SyncChunkStore
+	chunkStore storage.NetStore
 	kad        *network.Kademlia
 	getPeer    func(enode.ID) *Peer
 }
 
-func NewDelivery(kad *network.Kademlia, chunkStore storage.SyncChunkStore) *Delivery {
+func NewDelivery(kad *network.Kademlia, chunkStore storage.NetStore) *Delivery {
 	return &Delivery{
 		chunkStore: chunkStore,
 		kad:        kad,
@@ -238,57 +238,56 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *Ch
 			defer span.Finish()
 		}
 
-		req.peer = sp
 		log.Trace("handle.chunk.delivery", "put", req.Addr)
+
 		err := d.chunkStore.Put(ctx, storage.NewChunk(req.Addr, req.SData))
 		if err != nil {
 			if err == storage.ErrChunkInvalid {
-				// we removed this log because it spams the logs
-				// TODO: Enable this log line
-				// log.Warn("invalid chunk delivered", "peer", sp.ID(), "chunk", req.Addr, )
-				req.peer.Drop(err)
+				log.Error("invalid chunk delivered", "peer", sp.ID(), "chunk", req.Addr)
 			}
+
+			log.Error("err", err.Error(), "peer", sp.ID(), "chunk", req.Addr)
 		}
+
 		log.Trace("handle.chunk.delivery", "done put", req.Addr, "err", err)
 	}()
+
 	return nil
 }
 
 // RequestFromPeers sends a chunk retrieve request to a peer
-// The most eligible peer that hasn't already been sent to is chosen
-// TODO: define "eligible"
-func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (*enode.ID, chan struct{}, error) {
+// The closest peer that hasn't already been sent to is chosen
+func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (*enode.ID, error) {
 	requestFromPeersCount.Inc(1)
-	var sp *Peer
-	spID := req.Source
 
-	if spID != nil {
-		sp = d.getPeer(*spID)
-		if sp == nil {
-			return nil, nil, fmt.Errorf("source peer %v not found", spID.String())
+	var sp *Peer
+
+	d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
+		id := p.ID()
+
+		// skip light nodes
+		if p.LightNode {
+			return true
 		}
-	} else {
-		d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
-			id := p.ID()
-			if p.LightNode {
-				// skip light nodes
-				return true
-			}
-			if req.SkipPeer(id.String()) {
-				log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
-				return true
-			}
-			sp = d.getPeer(id)
-			// sp is nil, when we encounter a peer that is not registered for delivery, i.e. doesn't support the `stream` protocol
-			if sp == nil {
-				return true
-			}
-			spID = &id
-			return false
-		})
-		if sp == nil {
-			return nil, nil, errors.New("no peer found")
+
+		// skip peers that we have already tried
+		if req.SkipPeer(id.String()) {
+			log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
+			return true
 		}
+
+		sp = d.getPeer(id)
+
+		// sp is nil, when we encounter a peer that is not registered for delivery, i.e. doesn't support the `stream` protocol
+		if sp == nil {
+			return true
+		}
+
+		return false
+	})
+
+	if sp == nil {
+		return nil, errors.New("no peer found") // TODO: maybe clear the peers to skip and try again, or return a failure?
 	}
 
 	// setting this value in the context creates a new span that can persist across the sendpriority queue and the network roundtrip
@@ -297,14 +296,15 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 	ctx = context.WithValue(ctx, tracing.StoreLabelMeta, fmt.Sprintf("%v.%v", sp.ID(), req.Addr))
 	log.Trace("request.from.peers", "peer", sp.ID(), "ref", req.Addr)
 	err := sp.SendPriority(ctx, &RetrieveRequestMsg{
-		Addr:      req.Addr,
-		SkipCheck: req.SkipCheck,
-		HopCount:  req.HopCount,
+		Addr: req.Addr,
+		//SkipCheck: req.SkipCheck,
+		HopCount: req.HopCount,
 	}, Top)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	requestFromPeersEachCount.Inc(1)
 
-	return spID, sp.quit, nil
+	spID := sp.ID()
+	return &spID, nil
 }
