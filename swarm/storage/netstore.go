@@ -110,16 +110,24 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 		var requestGroup singleflight.Group
 
 		v, err, _ := requestGroup.Do(ref.String(), func() (interface{}, error) {
-			fi, _ := n.fetchers.LoadOrStore(ref.String(), FetcherItem{make(chan struct{}), sync.Mutex{}})
+			fi := FetcherItem{make(chan struct{}), sync.Mutex{}}
+			lfi, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
+			if loaded {
+				var ok bool
+				fi, ok = lfi.(FetcherItem)
+				if !ok {
+					log.Error("entry in n.fetchers is not a FetcherItem")
+					panic("wtf")
+				}
+			}
+
 			defer func() {
 				n.fetchersMu.Lock()
 				n.fetchers.Delete(ref.String())
 				n.fetchersMu.Unlock()
 			}()
 
-			r := fi.(FetcherItem)
-
-			err := RemoteFetch(ref, &r)
+			err := RemoteFetch(ref, &fi)
 			if err != nil {
 				return nil, err
 			}
@@ -158,7 +166,10 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address) (bool, *Fet
 		return true, nil
 	}
 
-	fi, _ := n.fetchers.LoadOrStore(ref.String(), FetcherItem{make(chan struct{}), sync.Mutex{}})
-	r := fi.(FetcherItem)
-	return false, &r
+	fi := FetcherItem{make(chan struct{}), sync.Mutex{}}
+	v, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
+	if loaded {
+		fi = v.(FetcherItem)
+	}
+	return false, &fi
 }
