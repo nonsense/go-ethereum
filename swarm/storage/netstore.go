@@ -96,7 +96,7 @@ func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
 	if ok {
 		// we need SafeClose, because it is possible for a chunk to both be
 		// delivered through syncing and through a retrieve request
-		fii := fi.(FetcherItem)
+		fii := fi.(*FetcherItem)
 		fii.SafeClose()
 		log.Trace("netstore.put chunk delivered and stored", "ref", chunk.Address().String(), "rid", rid)
 	}
