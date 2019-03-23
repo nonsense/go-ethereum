@@ -195,6 +195,8 @@ func (m OfferedHashesMsg) String() string {
 // handleOfferedHashesMsg protocol msg handler calls the incoming streamer interface
 // Filter method
 func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg) error {
+	rid := getGID()
+
 	metrics.GetOrRegisterCounter("peer.handleofferedhashes", nil).Inc(1)
 
 	var sp opentracing.Span
@@ -228,17 +230,17 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 		hash := hashes[i : i+HashSize]
 
 		if wait := c.NeedData(ctx, hash); wait != nil {
-			log.Trace("need data", "ref", fmt.Sprintf("%x", hash))
+			log.Trace("need data", "ref", fmt.Sprintf("%x", hash), "rid", rid)
 			ctr++
 			want.Set(i/HashSize, true)
 			// create request and wait until the chunk data arrives and is stored
 			go func(w func(context.Context) error) {
-				log.Trace("waiting for", "ref", fmt.Sprintf("%x", hash))
+				log.Trace("waiting for", "ref", fmt.Sprintf("%x", hash), "rid", rid)
 				select {
 				case errC <- w(ctx):
-					log.Trace("done waiting for, w(ctx) returned", "ref", fmt.Sprintf("%x", hash))
+					log.Trace("done waiting for, w(ctx) returned", "ref", fmt.Sprintf("%x", hash), "rid", rid)
 				case <-ctx.Done():
-					log.Trace("done waiting for, context done", "ref", fmt.Sprintf("%x", hash))
+					log.Trace("done waiting for, context done", "ref", fmt.Sprintf("%x", hash), "rid", rid)
 				}
 			}(wait)
 		}
@@ -250,15 +252,15 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 			select {
 			case err := <-errC:
 				if err != nil {
-					log.Error("handleOfferedHashesMsg() error waiting for chunk", "peer", p.ID(), "err", err)
+					log.Error("handleOfferedHashesMsg() error waiting for chunk", "peer", p.ID(), "err", err, "rid", rid)
 					//p.Drop(err)
 					return
 				}
 			case <-ctx.Done():
-				log.Debug("handleOfferedHashesMsg() context done", "ctx.Err()", ctx.Err())
+				log.Debug("handleOfferedHashesMsg() context done", "ctx.Err()", ctx.Err(), "rid", rid)
 				return
 			case <-c.quit:
-				log.Debug("client.handleOfferedHashesMsg() quit")
+				log.Debug("client.handleOfferedHashesMsg() quit", "rid", rid)
 				return
 			}
 		}

@@ -47,16 +47,17 @@ var RemoteFetch func(ctx context.Context, ref Address, fi *FetcherItem) error
 // the mutex controls who closes the channel, and make sure we close the channel only once
 type FetcherItem struct {
 	Delivered chan struct{} // when closed, it means that the chunk is delivered
-	Mu        sync.Mutex
+	once      sync.Once
+}
+
+func NewFetcherItem() FetcherItem {
+	return FetcherItem{make(chan struct{}), sync.Once{}}
 }
 
 func (fi *FetcherItem) SafeClose() {
-	fi.Mu.Lock()
-	_, ok := <-fi.Delivered
-	if !ok {
+	fi.once.Do(func() {
 		close(fi.Delivered)
-	}
-	fi.Mu.Unlock()
+	})
 }
 
 // NetStore is an extension of LocalStore
@@ -97,7 +98,7 @@ func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
 		// delivered through syncing and through a retrieve request
 		fii := fi.(FetcherItem)
 		fii.SafeClose()
-		log.Trace("netstore.put chunk delivered", "ref", chunk.Address().String(), "rid", rid)
+		log.Trace("netstore.put chunk delivered and stored", "ref", chunk.Address().String(), "rid", rid)
 	}
 
 	return nil
@@ -141,7 +142,7 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 
 		log.Trace("netstore.chunk-not-in-localstore", "ref", ref.String(), "rid", rid)
 		v, err, _ := requestGroup.Do(ref.String(), func() (interface{}, error) {
-			fi := FetcherItem{make(chan struct{}), sync.Mutex{}}
+			fi := NewFetcherItem()
 			lfi, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
 			log.Trace("netstore.loadorstore", "ref", ref.String(), "loaded", loaded, "rid", rid)
 			if loaded {
@@ -210,7 +211,7 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address) (bool, *Fet
 		return true, nil
 	}
 
-	fi := FetcherItem{make(chan struct{}), sync.Mutex{}}
+	fi := NewFetcherItem()
 	v, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
 	log.Trace("netstore.has-with-callback.loadorstore", "ref", ref.String(), "loaded", loaded)
 	if loaded {
