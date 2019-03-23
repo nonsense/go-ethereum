@@ -80,7 +80,7 @@ func trackChunks(testData []byte) error {
 	}
 
 	for i, ref := range addrs {
-		log.Trace(fmt.Sprintf("ref %d", i), "ref", ref)
+		log.Debug(fmt.Sprintf("ref %d", i), "ref", ref)
 	}
 
 	for _, host := range hosts {
@@ -115,7 +115,7 @@ func trackChunks(testData []byte) error {
 			log.Info("host reported to have all chunks", "host", host)
 		}
 
-		log.Trace("chunks", "chunks", strings.Join(hostChunks, ""), "host", host)
+		log.Debug("chunks", "chunks", strings.Join(hostChunks, ""), "host", host)
 	}
 	return nil
 }
