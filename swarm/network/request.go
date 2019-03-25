@@ -37,14 +37,18 @@ const (
 	maxHopCount uint8 = 20
 )
 
-// Time to consider peer to be skipped.
-// Also used in stream delivery.
+// FailedPeerSkipDelay is the time we consider a peer to be skipped for a particular request/chunk,
+// because this peer failed to deliver it during the SearchTimeout interval
 var FailedPeerSkipDelay = 10 * time.Second
 
+// RequestTimeout is the max time for which we try to find a chunk while handling a retrieve request
 var RequestTimeout = 10 * time.Second
 
+// FetcherTimeout is the max time a node tries to find a chunk for a client, after which it returns a 404
+// Basically this is the amount of time a singleflight request for a given chunk lives
 var FetcherTimeout = 10 * time.Second
 
+// SearchTimeout is the max time we wait for a peer to deliver a chunk we requests, after which we try another peer
 var SearchTimeout = 1 * time.Second
 
 var RemoteGet func(ctx context.Context, req *Request) (*enode.ID, error)
