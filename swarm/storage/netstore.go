@@ -64,24 +64,27 @@ func (fi *FetcherItem) SafeClose() {
 // it implements the ChunkStore interface
 // on request it initiates remote cloud retrieval
 type NetStore struct {
-	store      *LocalStore
-	fetchers   sync.Map
-	fetchersMu sync.Mutex
+	store    *LocalStore
+	fetchers sync.Map
+	putMu    sync.Mutex
 }
 
 // NewNetStore creates a new NetStore object using the given local store. newFetchFunc is a
 // constructor function that can create a fetch function for a specific chunk address.
 func NewNetStore(store *LocalStore) *NetStore {
 	return &NetStore{
-		store:      store,
-		fetchers:   sync.Map{},
-		fetchersMu: sync.Mutex{},
+		store:    store,
+		fetchers: sync.Map{},
+		putMu:    sync.Mutex{},
 	}
 }
 
 // Put stores a chunk in localstore, and delivers to all requestor peers using the fetcher stored in
 // the fetchers cache
 func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
+	n.putMu.Lock()
+	defer n.putMu.Unlock()
+
 	rid := getGID()
 	log.Trace("netstore.put", "ref", chunk.Address().String(), "rid", rid)
 
@@ -91,6 +94,7 @@ func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
 		return err
 	}
 
+	// TODO: probably safe to put this in a go-routine
 	// notify RemoteGet about a chunk being stored
 	fi, ok := n.fetchers.Load(chunk.Address().String())
 	if ok {
@@ -99,6 +103,8 @@ func (n *NetStore) Put(ctx context.Context, chunk Chunk) error {
 		fii := fi.(*FetcherItem)
 		fii.SafeClose()
 		log.Trace("netstore.put chunk delivered and stored", "ref", chunk.Address().String(), "rid", rid)
+
+		n.fetchers.Delete(chunk.Address().String())
 	}
 
 	return nil
@@ -142,47 +148,35 @@ func (n *NetStore) Get(ctx context.Context, ref Address) (Chunk, error) {
 
 		log.Trace("netstore.chunk-not-in-localstore", "ref", ref.String(), "rid", rid)
 		v, err, _ := requestGroup.Do(ref.String(), func() (interface{}, error) {
-			fi := NewFetcherItem()
-			lfi, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
-			log.Trace("netstore.loadorstore", "ref", ref.String(), "loaded", loaded, "rid", rid)
-			if loaded {
-				var ok bool
-				fi, ok = lfi.(*FetcherItem)
-				if !ok {
-					log.Error("entry in n.fetchers is not a FetcherItem")
-					panic("wtf")
+			has, fi := n.HasWithCallback(ctx, ref)
+			if !has {
+				err := RemoteFetch(ctx, ref, fi)
+				if err != nil {
+					return nil, err
 				}
-			}
-
-			defer func() {
-				n.fetchersMu.Lock()
-				n.fetchers.Delete(ref.String())
-				n.fetchersMu.Unlock()
-			}()
-
-			err := RemoteFetch(ctx, ref, fi)
-			if err != nil {
-				return nil, err
 			}
 
 			chunk, err := n.store.Get(ctx, ref)
 			if err != nil {
-				log.Error(err.Error())
+				log.Error(err.Error(), "ref", ref, "rid", rid)
 				return nil, errors.New("item should have been in localstore, but it is not")
 			}
 
 			return chunk, nil
 		})
+
 		res, ok := v.(Chunk)
 		if !ok && err == nil {
 			panic("not ok and no error?")
 		}
+
 		log.Trace("netstore.singleflight returned", "ref", ref.String(), "err", err, "rid", rid)
 
 		if err != nil {
-			log.Error(err.Error(), "ref", ref)
+			log.Error(err.Error(), "ref", ref, "rid", rid)
 			return nil, err
 		}
+
 		log.Trace("netstore return", "ref", ref.String(), "chunk len", len(res.Data()), "rid", rid)
 
 		return res, nil
@@ -204,8 +198,8 @@ func (n *NetStore) Has(ctx context.Context, ref Address) bool {
 }
 
 func (n *NetStore) HasWithCallback(ctx context.Context, ref Address) (bool, *FetcherItem) {
-	n.fetchersMu.Lock()
-	defer n.fetchersMu.Unlock()
+	n.putMu.Lock()
+	defer n.putMu.Unlock()
 
 	if n.store.Has(ctx, ref) {
 		return true, nil
