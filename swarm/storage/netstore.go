@@ -46,8 +46,12 @@ var RemoteFetch func(ctx context.Context, ref Address, fi *FetcherItem) error
 // FetcherItem are stored in fetchers map and signal to all interested parties if a given chunk is delivered
 // the mutex controls who closes the channel, and make sure we close the channel only once
 type FetcherItem struct {
-	Delivered chan struct{} // when closed, it means that the chunk is delivered
-	once      sync.Once
+	Delivered chan struct{} // when closed, it means that the chunk this FetcherItem refers to is delivered
+
+	// it is possible for multiple actors to be delivering the same chunk,
+	// for example through syncing and through retrieve request. however we want the `Delivered` channel to be closed only
+	// once, even if we put the same chunk multiple times in the NetStore.
+	once sync.Once
 }
 
 func NewFetcherItem() *FetcherItem {
