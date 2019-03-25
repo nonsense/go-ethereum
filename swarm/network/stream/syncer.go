@@ -18,7 +18,7 @@ package stream
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -198,12 +198,11 @@ func (s *SwarmSyncerClient) NeedData(ctx context.Context, key []byte) (wait func
 		return nil
 	}
 
-	// return what the fuck?
 	return func(ctx context.Context) error {
 		select {
 		case <-fi.Delivered:
-		case <-time.After(10 * time.Second):
-			return errors.New("chunk not delivered through syncing after 10sec.")
+		case <-time.After(20 * time.Second):
+			return fmt.Errorf("chunk not delivered through syncing after 20sec. ref=%s", fmt.Sprintf("%x", key))
 		}
 		return nil
 	}
