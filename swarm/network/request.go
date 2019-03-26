@@ -75,9 +75,11 @@ func RemoteFetch(ctx context.Context, req *Request, fi *FetcherItem, localID eno
 		currentPeer, err := RemoteGet(innerCtx, req, localID)
 		if err != nil {
 			log.Error(err.Error(), "ref", ref, "rid", rid)
+			osp.LogFields(olog.String("err", err.Error()))
 			osp.Finish()
 			return err
 		}
+		osp.LogFields(olog.String("peer", currentPeer.String()))
 
 		// add peer to the set of peers to skip from now
 		log.Trace("remote.fetch, adding peer to skip", "ref", ref, "peer", currentPeer.String(), "rid", rid)

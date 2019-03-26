@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strconv"
 
@@ -267,6 +268,8 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, l
 
 	var sp *Peer
 
+	var err error
+
 	d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
 		id := p.ID()
 
@@ -289,9 +292,12 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, l
 
 		// if origin is farther away from req.Addr and origin is not in our depth
 		depth := d.kad.NeighbourhoodDepth()
+		prox := chunk.Proximity(req.Addr, d.kad.BaseAddr())
 		// proximity between the req.Addr and our base addr
-		if po < depth && chunk.Proximity(req.Addr, d.kad.BaseAddr()) >= depth {
+		if po < depth && prox >= depth {
 			log.Trace("Delivery.RequestFromPeers: skip peer because depth", "po", po, "depth", depth, "peer", id, "ref", req.Addr.String(), "rid", rid)
+
+			err = fmt.Errorf("not going outside of depth; ref=%s po=%v depth=%v prox=%v", req.Addr.String(), po, depth, prox)
 			return false
 		}
 
@@ -304,6 +310,11 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, l
 
 		return false
 	})
+
+	if err != nil {
+		log.Error(err.Error())
+		return nil, err
+	}
 
 	if sp == nil {
 		return nil, errors.New("no peer found") // TODO: maybe clear the peers to skip and try again, or return a failure?
@@ -318,8 +329,9 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, l
 		SkipCheck: true, // this has something to do with old syncing
 	}
 	log.Trace("sending retrieve request", "ref", r.Addr, "peer", sp.ID().String(), "origin", r.Origin)
-	err := sp.Send(ctx, r)
+	err = sp.Send(ctx, r)
 	if err != nil {
+		log.Error(err.Error())
 		return nil, err
 	}
 
