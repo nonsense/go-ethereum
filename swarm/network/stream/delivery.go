@@ -270,6 +270,8 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, l
 
 	var err error
 
+	depth := d.kad.NeighbourhoodDepth()
+
 	d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
 		id := p.ID()
 
@@ -291,7 +293,6 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, l
 		}
 
 		// if origin is farther away from req.Addr and origin is not in our depth
-		depth := d.kad.NeighbourhoodDepth()
 		prox := chunk.Proximity(req.Addr, d.kad.BaseAddr())
 		// proximity between the req.Addr and our base addr
 		if po < depth && prox >= depth {
