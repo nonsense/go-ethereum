@@ -25,6 +25,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/ethereum/go-ethereum/swarm/chunk"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/network"
 	"github.com/ethereum/go-ethereum/swarm/spancontext"
@@ -262,6 +263,8 @@ func getGID() uint64 {
 func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, localID enode.ID) (*enode.ID, error) {
 	metrics.GetOrRegisterCounter("delivery.requestfrompeers", nil).Inc(1)
 
+	rid := getGID()
+
 	var sp *Peer
 
 	d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
@@ -282,6 +285,14 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request, l
 			rid := getGID()
 			log.Trace("Delivery.RequestFromPeers: skip peer", "peer", id, "ref", req.Addr.String(), "rid", rid)
 			return true
+		}
+
+		// if origin is farther away from req.Addr and origin is not in our depth
+		depth := d.kad.NeighbourhoodDepth()
+		// proximity between the req.Addr and our base addr
+		if po < depth && chunk.Proximity(req.Addr, d.kad.BaseAddr()) >= depth {
+			log.Trace("Delivery.RequestFromPeers: skip peer because depth", "po", po, "depth", depth, "peer", id, "ref", req.Addr.String(), "rid", rid)
+			return false
 		}
 
 		sp = d.getPeer(id)

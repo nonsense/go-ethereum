@@ -24,25 +24,13 @@ import (
 )
 
 type LNetStore struct {
-	store *NetStore
+	*NetStore
 }
 
 func NewLNetStore(store *NetStore) *LNetStore {
 	return &LNetStore{
-		store: store,
+		NetStore: store,
 	}
-}
-
-func (n *LNetStore) Put(ctx context.Context, chunk storage.Chunk) error {
-	return n.store.Put(ctx, chunk)
-}
-
-func (n *LNetStore) Has(ctx context.Context, ref storage.Address) bool {
-	return n.store.Has(ctx, ref)
-}
-
-func (n *LNetStore) Close() {
-	n.store.Close()
 }
 
 func (n *LNetStore) Get(ctx context.Context, ref storage.Address) (ch storage.Chunk, err error) {
@@ -52,5 +40,5 @@ func (n *LNetStore) Get(ctx context.Context, ref storage.Address) (ch storage.Ch
 		Origin:   enode.ID{},
 	}
 
-	return n.store.Get(ctx, req)
+	return n.NetStore.Get(ctx, req)
 }
