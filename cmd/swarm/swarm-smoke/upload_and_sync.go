@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -156,9 +157,16 @@ func uploadAndSync(c *cli.Context, randomBytes []byte) error {
 
 	log.Info("uploaded successfully", "hash", hash, "took", t2, "digest", fmt.Sprintf("%x", fhash))
 
-	randIndex := 1 + rand.Intn(len(hosts)-1)
-
-	waitUntilSyncingStops(wsEndpoint(hosts[randIndex]))
+	var wg sync.WaitGroup
+	wg.Add(len(hosts))
+	for i := 0; i < len(hosts); i++ {
+		i := i
+		go func(idx int) {
+			waitUntilSyncingStops(wsEndpoint(hosts[idx]))
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
 
 	log.Debug("chunks before fetch attempt", "hash", hash)
 
@@ -166,6 +174,8 @@ func uploadAndSync(c *cli.Context, randomBytes []byte) error {
 	if err != nil {
 		log.Error(err.Error())
 	}
+
+	randIndex := 1 + rand.Intn(len(hosts)-1)
 
 	for {
 		start := time.Now()
@@ -195,7 +205,7 @@ func waitUntilSyncingStops(wsHost string) {
 		if err != nil {
 			log.Error("error dialing host", "err", err)
 
-			time.Sleep(1 * time.Second)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		break
@@ -207,13 +217,13 @@ func waitUntilSyncingStops(wsHost string) {
 		if err != nil {
 			log.Error("error calling host for isSyncing", "err", err)
 
-			time.Sleep(1 * time.Second)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 
 		log.Info("isSyncing result", "host", wsHost, "isSyncing", isSyncing)
 		if isSyncing {
-			time.Sleep(3 * time.Second)
+			time.Sleep(5 * time.Second)
 			continue
 		} else {
 			return

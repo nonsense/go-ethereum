@@ -101,7 +101,7 @@ func main() {
 		},
 		cli.IntFlag{
 			Name:        "timeout",
-			Value:       120,
+			Value:       180,
 			Usage:       "timeout in seconds after which kill the process",
 			Destination: &timeout,
 		},
