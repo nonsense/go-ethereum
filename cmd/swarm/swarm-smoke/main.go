@@ -40,8 +40,8 @@ var (
 	allhosts     string
 	hosts        []string
 	filesize     int
-	inputSeed    int
 	syncDelay    int
+	inputSeed    int
 	httpPort     int
 	wsPort       int
 	verbosity    int

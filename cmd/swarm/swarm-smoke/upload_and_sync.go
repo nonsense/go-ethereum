@@ -24,7 +24,6 @@ import (
 	"math/rand"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -33,12 +32,11 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/api"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	"github.com/ethereum/go-ethereum/swarm/testutil"
-	"github.com/pborman/uuid"
 
 	cli "gopkg.in/urfave/cli.v1"
 )
 
-func uploadAndSyncCmd(ctx *cli.Context, tuid string) error {
+func uploadAndSyncCmd(ctx *cli.Context) error {
 	// use input seed if it has been set
 	if inputSeed != 0 {
 		seed = inputSeed
@@ -49,7 +47,7 @@ func uploadAndSyncCmd(ctx *cli.Context, tuid string) error {
 	errc := make(chan error)
 
 	go func() {
-		errc <- uploadAndSync(ctx, randomBytes, tuid)
+		errc <- uploadAndSync(ctx, randomBytes)
 	}()
 
 	var err error
@@ -138,8 +136,8 @@ func getAllRefs(testData []byte) (storage.AddressCollection, error) {
 	return fileStore.GetAllReferences(ctx, reader, false)
 }
 
-func uploadAndSync(c *cli.Context, randomBytes []byte, tuid string) error {
-	log.Info("uploading to "+httpEndpoint(hosts[0])+" and syncing", "tuid", tuid, "seed", seed)
+func uploadAndSync(c *cli.Context, randomBytes []byte) error {
+	log.Info("uploading to "+httpEndpoint(hosts[0])+" and syncing", "seed", seed)
 
 	t1 := time.Now()
 	hash, err := upload(randomBytes, httpEndpoint(hosts[0]))
@@ -156,61 +154,69 @@ func uploadAndSync(c *cli.Context, randomBytes []byte, tuid string) error {
 		return err
 	}
 
-	log.Info("uploaded successfully", "tuid", tuid, "hash", hash, "took", t2, "digest", fmt.Sprintf("%x", fhash))
+	log.Info("uploaded successfully", "hash", hash, "took", t2, "digest", fmt.Sprintf("%x", fhash))
 
-	time.Sleep(time.Duration(syncDelay) * time.Second)
+	randIndex := 1 + rand.Intn(len(hosts)-1)
 
-	log.Debug("chunks before fetch attempt", "tuid", tuid, "hash", hash)
+	waitUntilSyncingStops(wsEndpoint(hosts[randIndex]))
+
+	log.Debug("chunks before fetch attempt", "hash", hash)
 
 	err = trackChunks(randomBytes)
 	if err != nil {
 		log.Error(err.Error())
 	}
 
-	wg := sync.WaitGroup{}
-	if single {
-		randIndex := 1 + rand.Intn(len(hosts)-1)
-		ruid := uuid.New()[:8]
-		wg.Add(1)
-		go func(endpoint string, ruid string) {
-			for {
-				start := time.Now()
-				err := fetch(hash, endpoint, fhash, ruid, tuid)
-				if err != nil {
-					time.Sleep(2 * time.Second)
-					continue
-				}
-				ended := time.Since(start)
-
-				metrics.GetOrRegisterResettingTimer("upload-and-sync.single.fetch-time", nil).Update(ended)
-				log.Info("fetch successful", "tuid", tuid, "ruid", ruid, "took", ended, "endpoint", endpoint)
-				wg.Done()
-				return
-			}
-		}(httpEndpoint(hosts[randIndex]), ruid)
-	} else {
-		for _, endpoint := range hosts[1:] {
-			ruid := uuid.New()[:8]
-			wg.Add(1)
-			go func(endpoint string, ruid string) {
-				for {
-					start := time.Now()
-					err := fetch(hash, endpoint, fhash, ruid, tuid)
-					if err != nil {
-						continue
-					}
-					ended := time.Since(start)
-
-					metrics.GetOrRegisterResettingTimer("upload-and-sync.each.fetch-time", nil).Update(ended)
-					log.Info("fetch successful", "tuid", tuid, "ruid", ruid, "took", ended, "endpoint", endpoint)
-					wg.Done()
-					return
-				}
-			}(httpEndpoint(endpoint), ruid)
+	for {
+		start := time.Now()
+		err := fetch(hash, httpEndpoint(hosts[randIndex]), fhash, "")
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
 		}
+		ended := time.Since(start)
+
+		metrics.GetOrRegisterResettingTimer("upload-and-sync.single.fetch-time", nil).Update(ended)
+		log.Info("fetch successful", "took", ended, "endpoint", httpEndpoint(hosts[randIndex]))
+		break
 	}
-	wg.Wait()
-	log.Info("all hosts synced random file successfully")
 
 	return nil
+}
+
+func waitUntilSyncingStops(wsHost string) {
+	defer metrics.GetOrRegisterResettingTimer("upload-and-sync.single.wait-for-sync", nil).UpdateSince(time.Now())
+
+	var rpcClient *rpc.Client
+	var err error
+
+	for {
+		rpcClient, err = rpc.Dial(wsHost)
+		if err != nil {
+			log.Error("error dialing host", "err", err)
+
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		break
+	}
+
+	for {
+		var isSyncing bool
+		err = rpcClient.Call(&isSyncing, "bzz_isSyncing")
+		if err != nil {
+			log.Error("error calling host for isSyncing", "err", err)
+
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		log.Info("isSyncing result", "host", wsHost, "isSyncing", isSyncing)
+		if isSyncing {
+			time.Sleep(3 * time.Second)
+			continue
+		} else {
+			return
+		}
+	}
 }
