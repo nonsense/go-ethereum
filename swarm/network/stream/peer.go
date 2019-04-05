@@ -26,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/protocols"
 	"github.com/ethereum/go-ethereum/swarm/log"
+	"github.com/ethereum/go-ethereum/swarm/network"
 	pq "github.com/ethereum/go-ethereum/swarm/network/priorityqueue"
 	"github.com/ethereum/go-ethereum/swarm/network/stream/intervals"
 	"github.com/ethereum/go-ethereum/swarm/spancontext"
@@ -55,6 +56,7 @@ var ErrMaxPeerServers = errors.New("max peer servers")
 // Peer is the Peer extension for the streaming protocol
 type Peer struct {
 	*protocols.Peer
+	bzzPeer  *network.BzzPeer
 	streamer *Registry
 	pq       *pq.PriorityQueue
 	serverMu sync.RWMutex
@@ -74,9 +76,10 @@ type WrappedPriorityMsg struct {
 }
 
 // NewPeer is the constructor for Peer
-func NewPeer(peer *protocols.Peer, streamer *Registry) *Peer {
+func NewPeer(peer *network.BzzPeer, streamer *Registry) *Peer {
 	p := &Peer{
-		Peer:         peer,
+		Peer:         peer.Peer,
+		bzzPeer:      peer,
 		pq:           pq.New(int(PriorityQueue), PriorityQueueCap),
 		streamer:     streamer,
 		servers:      make(map[Stream]*server),
@@ -100,6 +103,77 @@ func NewPeer(peer *protocols.Peer, streamer *Registry) *Peer {
 		cancel()
 	}()
 	return p
+}
+
+func (p *Peer) Registrations() error {
+	if p.streamer.syncMode != SyncingAutoSubscribe {
+		return nil
+	}
+	timer := time.NewTimer(p.streamer.syncUpdateDelay)
+	select {
+	case <-timer.C:
+	case <-p.quit:
+		timer.Stop()
+		return nil
+	}
+
+	err := p.doRegistrations()
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-p.quit:
+			return nil
+		case <-p.bzzPeer.ChangeC:
+			// ugly hack here as I was getting double subscription requests in snapshot_sync_test,
+			// which means that new subscription requests were being issued before
+			// a first round finished and the servers were being created
+			//TODO: needs investigation about why that is
+			timer = time.NewTimer(p.streamer.syncUpdateDelay)
+			select {
+			case <-timer.C:
+			case <-p.quit:
+				timer.Stop()
+				return nil
+			}
+			err := p.doRegistrations()
+			if err != nil {
+				log.Error(err.Error())
+			}
+		default:
+		}
+	}
+	return nil
+}
+
+func (p *Peer) doRegistrations() error {
+	var startPo int
+	var endPo int
+
+	kad := p.streamer.delivery.kad
+	kadDepth := kad.NeighbourhoodDepth()
+	po := kad.PoOfPeer(p.bzzPeer)
+
+	if po < kadDepth {
+		startPo = po
+		endPo = po
+	} else {
+		//if the peer's bin is equal or deeper than the kademlia depth,
+		//each bin from the depth up to k.MaxProxDisplay should be subscribed
+		startPo = kadDepth
+		endPo = kad.MaxProxDisplay
+	}
+
+	for bin := startPo; bin <= endPo; bin++ {
+		//do the actual subscription
+		err := subscriptionFunc(p.streamer, p.bzzPeer, uint8(bin))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Deliver sends a storeRequestMsg protocol message to the peer

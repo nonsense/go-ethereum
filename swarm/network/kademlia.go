@@ -26,6 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/ethereum/go-ethereum/swarm/chunk"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/pot"
 	sv "github.com/ethereum/go-ethereum/swarm/version"
@@ -300,6 +301,10 @@ func (k *Kademlia) SuggestPeer() (suggestedPeer *BzzAddr, saturationDepth int, c
 	return suggestedPeer, 0, false
 }
 
+func (k *Kademlia) PoOfPeer(peer *BzzPeer) int {
+	return chunk.Proximity(k.BaseAddr(), peer.Over())
+}
+
 // On inserts the peer as a kademlia peer into the live peers
 func (k *Kademlia) On(p *Peer) (uint8, bool) {
 	k.lock.Lock()
@@ -325,6 +330,9 @@ func (k *Kademlia) On(p *Peer) (uint8, bool) {
 		k.addrs, _, _, _ = pot.Swap(k.addrs, p, Pof, func(v pot.Val) pot.Val {
 			return a
 		})
+		k.lock.Unlock()
+		k.notifyKadChange()
+		k.lock.Lock()
 		// send new address count value only if the peer is inserted
 		if k.addrCountC != nil {
 			k.addrCountC <- k.addrs.Size()
@@ -339,6 +347,13 @@ func (k *Kademlia) On(p *Peer) (uint8, bool) {
 	}
 	k.sendNeighbourhoodDepthChange()
 	return k.depth, changed
+}
+
+func (k *Kademlia) notifyKadChange() {
+	k.EachConn(nil, 255, func(p *Peer, po int) bool {
+		go p.NotifyChanged()
+		return true
+	})
 }
 
 // NeighbourhoodDepthC returns the channel that sends a new kademlia
