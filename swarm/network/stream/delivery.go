@@ -95,7 +95,8 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 	}
 
 	log.Trace("retrieve request, delivery", "ref", req.Addr, "peer", sp.ID())
-	err = sp.Deliver(ctx, chunk, 0, false)
+	syncing := false
+	err = sp.Deliver(ctx, chunk, syncing)
 	if err != nil {
 		log.Warn("ERROR in handleRetrieveRequestMsg", "err", err)
 	}

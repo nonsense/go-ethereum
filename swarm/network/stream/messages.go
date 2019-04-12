@@ -362,7 +362,7 @@ func (p *Peer) handleWantedHashesMsg(ctx context.Context, req *WantedHashesMsg) 
 			}
 			chunk := storage.NewChunk(hash, data)
 			syncing := true
-			if err := p.Deliver(ctx, chunk, s.priority, syncing); err != nil {
+			if err := p.Deliver(ctx, chunk, syncing); err != nil {
 				return err
 			}
 		}
