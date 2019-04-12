@@ -19,15 +19,13 @@ package stream
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	bv "github.com/ethereum/go-ethereum/swarm/network/bitvector"
+	"github.com/ethereum/go-ethereum/swarm/network/timeouts"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 )
-
-var syncBatchTimeout = 30 * time.Second
 
 // Stream defines a unique stream identifier.
 type Stream struct {
@@ -213,10 +211,12 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 
 	ctr := 0
 	errC := make(chan error)
-	ctx, cancel := context.WithTimeout(ctx, syncBatchTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeouts.SyncBatchTimeout)
 
 	for i := 0; i < lenHashes; i += HashSize {
 		hash := hashes[i : i+HashSize]
+
+		log.Trace("checking offered hash", "ref", fmt.Sprintf("%x", hash))
 
 		if shouldNOTRequestAgain, wait := c.NeedData(ctx, hash); wait != nil {
 			ctr++
@@ -250,8 +250,6 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 			case err := <-errC:
 				if err != nil {
 					log.Error("handleOfferedHashesMsg() error waiting for chunk", "peer", p.ID(), "err", err)
-					// TODO: fix
-					//p.Drop(err)
 					return
 				}
 			case <-ctx.Done():
@@ -292,8 +290,7 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 		select {
 		case err := <-c.next:
 			if err != nil {
-				log.Warn("c.next error dropping peer", "err", err)
-				//p.Drop(err)
+				log.Error("c.next error", "err", err)
 				return
 			}
 		case <-c.quit:

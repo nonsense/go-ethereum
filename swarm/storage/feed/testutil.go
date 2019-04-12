@@ -17,6 +17,8 @@
 package feed
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
@@ -49,10 +51,11 @@ func NewTestHandler(datadir string, params *HandlerParams) (*TestHandler, error)
 
 	localStore := chunk.NewValidatorStore(db, storage.NewContentAddressValidator(storage.MakeHashFunc(feedsHashAlgorithm)), fh)
 
-	//TODO: fixme
 	netStore := storage.NewNetStore(localStore, enode.ID{})
-	//TODO: fixme
-	//netStore.NewNetFetcherFunc = newFakeNetFetcher
+	netStore.RemoteGet = func(ctx context.Context, req *storage.Request, localID enode.ID) (*enode.ID, error) {
+		return nil, errors.New("not found")
+	}
+
 	fh.SetStore(netStore)
 	return &TestHandler{fh}, nil
 }

@@ -34,7 +34,6 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/chunk"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/network"
-	pq "github.com/ethereum/go-ethereum/swarm/network/priorityqueue"
 	"github.com/ethereum/go-ethereum/swarm/network/simulation"
 	"github.com/ethereum/go-ethereum/swarm/state"
 	"github.com/ethereum/go-ethereum/swarm/storage"
@@ -138,8 +137,8 @@ func TestStreamerUpstreamRetrieveRequestMsgExchange(t *testing.T) {
 	}
 }
 
-// if there is one peer in the Kademlia, RequestFromPeers should return it
-func TestRequestFromPeers(t *testing.T) {
+// if there is one peer in the Kademlia, FindPeer should return it
+func TestFindPeer(t *testing.T) {
 	dummyPeerID := enode.HexID("3431c3939e1ee2a6345e976a8234f9870152d64879f30bc272a074f6859e75e8")
 
 	addr := network.RandomAddr()
@@ -153,32 +152,26 @@ func TestRequestFromPeers(t *testing.T) {
 	}, to)
 	to.On(peer)
 	r := NewRegistry(addr.ID(), delivery, nil, nil, nil, nil)
-
-	// an empty priorityQueue has to be created to prevent a goroutine being called after the test has finished
 	sp := &Peer{
 		Peer:     protocolsPeer,
-		pq:       pq.New(int(PriorityQueue), PriorityQueueCap),
 		streamer: r,
 	}
 	r.setPeer(sp)
-	req := network.NewRequest(
+	req := storage.NewRequest(
 		storage.Address(hash0[:]),
-		true,
-		&sync.Map{},
+		0,
 	)
-	ctx := context.Background()
-	id, _, err := delivery.RequestFromPeers(ctx, req)
-
+	id, err := delivery.FindPeer(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *id != dummyPeerID {
+	if id.ID() != dummyPeerID {
 		t.Fatalf("Expected an id, got %v", id)
 	}
 }
 
-// RequestFromPeers should not return light nodes
-func TestRequestFromPeersWithLightNode(t *testing.T) {
+// FindPeer should not return light nodes
+func TestFindPeerWithLightNode(t *testing.T) {
 	dummyPeerID := enode.HexID("3431c3939e1ee2a6345e976a8234f9870152d64879f30bc272a074f6859e75e8")
 
 	addr := network.RandomAddr()
@@ -194,23 +187,19 @@ func TestRequestFromPeersWithLightNode(t *testing.T) {
 	}, to)
 	to.On(peer)
 	r := NewRegistry(addr.ID(), delivery, nil, nil, nil, nil)
-	// an empty priorityQueue has to be created to prevent a goroutine being called after the test has finished
 	sp := &Peer{
 		Peer:     protocolsPeer,
-		pq:       pq.New(int(PriorityQueue), PriorityQueueCap),
 		streamer: r,
 	}
 	r.setPeer(sp)
 
-	req := network.NewRequest(
+	req := storage.NewRequest(
 		storage.Address(hash0[:]),
-		true,
-		&sync.Map{},
+		0,
 	)
 
-	ctx := context.Background()
 	// making a request which should return with "no peer found"
-	_, _, err := delivery.RequestFromPeers(ctx, req)
+	_, err := delivery.FindPeer(req)
 
 	expectedError := "no peer found"
 	if err.Error() != expectedError {
@@ -302,26 +291,28 @@ func TestStreamerDownstreamChunkDeliveryMsgExchange(t *testing.T) {
 
 }
 
+// TestDeliveryFromNodes adds N nodes in a chain, meaning every node has 2 peers, and both those peers
+// are in its nearest neighbourhood. This means when a node handles a retrieve request from one peer,
+// it should always forward that request to the next peer, no matter what the chunk address is.
+// Then we randomly upload dataChunkCount chunks and try to retrieve them from one `pivot` node.
 func TestDeliveryFromNodes(t *testing.T) {
-	testDeliveryFromNodes(t, 2, dataChunkCount, true)
-	testDeliveryFromNodes(t, 2, dataChunkCount, false)
-	testDeliveryFromNodes(t, 4, dataChunkCount, true)
-	testDeliveryFromNodes(t, 4, dataChunkCount, false)
+	dataChunkCount := 500
+
+	testDeliveryFromNodes(t, 2, dataChunkCount)
+	testDeliveryFromNodes(t, 4, dataChunkCount)
 
 	if testutil.RaceEnabled {
 		// Travis cannot handle more nodes with -race; would time out.
 		return
 	}
 
-	testDeliveryFromNodes(t, 8, dataChunkCount, true)
-	testDeliveryFromNodes(t, 8, dataChunkCount, false)
-	testDeliveryFromNodes(t, 16, dataChunkCount, true)
-	testDeliveryFromNodes(t, 16, dataChunkCount, false)
+	testDeliveryFromNodes(t, 8, dataChunkCount)
+	testDeliveryFromNodes(t, 16, dataChunkCount)
 }
 
-func testDeliveryFromNodes(t *testing.T, nodes, chunkCount int, skipCheck bool) {
+func testDeliveryFromNodes(t *testing.T, nodes, chunkCount int) {
 	t.Helper()
-	t.Run(fmt.Sprintf("testDeliveryFromNodes_%d_%d_skipCheck_%t", nodes, chunkCount, skipCheck), func(t *testing.T) {
+	t.Run(fmt.Sprintf("testDeliveryFromNodes_%d_%d", nodes, chunkCount), func(t *testing.T) {
 		sim := simulation.New(map[string]simulation.ServiceFunc{
 			"streamer": func(ctx *adapters.ServiceContext, bucket *sync.Map) (s node.Service, cleanup func(), err error) {
 				addr, netStore, delivery, clean, err := newNetStoreAndDelivery(ctx, bucket)
@@ -330,8 +321,7 @@ func testDeliveryFromNodes(t *testing.T, nodes, chunkCount int, skipCheck bool) 
 				}
 
 				r := NewRegistry(addr.ID(), delivery, netStore, state.NewInmemoryStore(), &RegistryOptions{
-					SkipCheck: skipCheck,
-					Syncing:   SyncingDisabled,
+					Syncing: SyncingDisabled,
 				}, nil)
 				bucket.Store(bucketKeyRegistry, r)
 
@@ -352,7 +342,7 @@ func testDeliveryFromNodes(t *testing.T, nodes, chunkCount int, skipCheck bool) 
 		}
 
 		log.Info("Starting simulation")
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		result := sim.Run(ctx, func(ctx context.Context, sim *simulation.Simulation) (err error) {
 			nodeIDs := sim.UpNodeIDs()
@@ -383,7 +373,7 @@ func testDeliveryFromNodes(t *testing.T, nodes, chunkCount int, skipCheck bool) 
 			roundRobinFileStore := storage.NewFileStore(newRoundRobinStore(stores...), storage.NewFileStoreParams())
 			//now we can actually upload a (random) file to the round-robin store
 			size := chunkCount * chunkSize
-			log.Debug("Storing data to file store")
+			log.Debug("storing data to file store", "size", size)
 			fileHash, wait, err := roundRobinFileStore.Store(ctx, testutil.RandomReader(1, size), int64(size), false)
 			// wait until all chunks stored
 			if err != nil {
@@ -393,6 +383,9 @@ func testDeliveryFromNodes(t *testing.T, nodes, chunkCount int, skipCheck bool) 
 			if err != nil {
 				return err
 			}
+
+			// make sure we really have stored all chunks
+			time.Sleep(3 * time.Second)
 
 			//get the pivot node's filestore
 			item, ok := sim.NodeItem(pivot, bucketKeyFileStore)
@@ -559,7 +552,11 @@ func benchmarkDeliveryFromNodes(b *testing.B, nodes, chunkCount int, skipCheck b
 			errs := make(chan error)
 			for _, hash := range hashes {
 				go func(h storage.Address) {
-					_, err := netStore.Get(ctx, chunk.ModeGetRequest, h)
+					r := storage.NewRequest(
+						h,
+						0,
+					)
+					_, err := netStore.Get(ctx, chunk.ModeGetRequest, r)
 					log.Warn("test check netstore get", "hash", h, "err", err)
 					errs <- err
 				}(hash)

@@ -137,6 +137,7 @@ func (p *Peer) SendOfferedHashes(s *server, f, t uint64) error {
 		}
 	}
 	s.currentBatch = hashes
+
 	msg := &OfferedHashesMsg{
 		HandoverProof: proof,
 		Hashes:        hashes,

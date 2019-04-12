@@ -79,7 +79,7 @@ const (
 )
 
 // TestInitialPeersMsg tests if peersMsg response to incoming subPeersMsg is correct
-func TestInitialPeersMsg(t *testing.T) {
+func XTestInitialPeersMsg(t *testing.T) {
 	for po := 0; po < maxPO; po++ {
 		for depth := 0; depth < maxPO; depth++ {
 			t.Run(fmt.Sprintf("PO=%d,advertised depth=%d", po, depth), func(t *testing.T) {

@@ -208,7 +208,7 @@ func runFileRetrievalTest(nodeCount int) error {
 					//check that we can read the file size and that it corresponds to the generated file size
 					if s, err := reader.Size(ctx, nil); err != nil || s != int64(len(randomFiles[i])) {
 						log.Debug("Retrieve error", "err", err, "hash", hash, "nodeId", id)
-						time.Sleep(500 * time.Millisecond)
+						time.Sleep(50 * time.Millisecond)
 						continue REPEAT
 					}
 					log.Debug(fmt.Sprintf("File with root hash %x successfully retrieved", hash))
@@ -250,7 +250,7 @@ func runRetrievalTest(t *testing.T, chunkCount int, nodeCount int) error {
 	//array where the generated chunk hashes will be stored
 	conf.hashes = make([]storage.Address, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	filename := fmt.Sprintf("testing/snapshot_%d.json", nodeCount)
@@ -284,29 +284,35 @@ func runRetrievalTest(t *testing.T, chunkCount int, nodeCount int) error {
 			return err
 		}
 
+		for _, v := range conf.hashes {
+			log.Debug("conf.hashes", "ref", v)
+		}
+
 		// File retrieval check is repeated until all uploaded files are retrieved from all nodes
 		// or until the timeout is reached.
 	REPEAT:
 		for {
-			for _, id := range nodeIDs {
-				//for each expected chunk, check if it is in the local store
-				//check on the node's FileStore (netstore)
-				item, ok := sim.NodeItem(id, bucketKeyFileStore)
-				if !ok {
-					return fmt.Errorf("No filestore")
-				}
-				fileStore := item.(*storage.FileStore)
-				//check all chunks
-				for _, hash := range conf.hashes {
+			for _, hash := range conf.hashes {
+				for _, id := range nodeIDs {
+					//for each expected chunk, check if it is in the local store
+					//check on the node's FileStore (netstore)
+					item, ok := sim.NodeItem(id, bucketKeyFileStore)
+					if !ok {
+						return fmt.Errorf("No filestore")
+					}
+					fileStore := item.(*storage.FileStore)
+					log.Debug("trying to retrieve", "ref", hash, "node", id)
 					reader, _ := fileStore.Retrieve(context.TODO(), hash)
 					//check that we can read the chunk size and that it corresponds to the generated chunk size
 					if s, err := reader.Size(ctx, nil); err != nil || s != int64(chunkSize) {
-						log.Debug("Retrieve error", "err", err, "hash", hash, "nodeId", id, "size", s)
+						log.Debug("retrieve error", "err", err, "hash", hash, "nodeId", id, "size", s)
 						time.Sleep(500 * time.Millisecond)
 						continue REPEAT
 					}
-					log.Debug(fmt.Sprintf("Chunk with root hash %x successfully retrieved", hash))
+					log.Debug("chunk successfully retrieved", "ref", hash)
 				}
+
+				log.Debug("chunk successfully retrieved for all hosts", "ref", hash)
 			}
 			// all nodes and files found, exit loop and return without error
 			return nil

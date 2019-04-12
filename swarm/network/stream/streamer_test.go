@@ -17,7 +17,6 @@
 package stream
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,6 +28,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/swarm/testutil"
+	"golang.org/x/crypto/sha3"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -39,7 +39,6 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/network"
 	"github.com/ethereum/go-ethereum/swarm/network/simulation"
 	"github.com/ethereum/go-ethereum/swarm/state"
-	"golang.org/x/crypto/sha3"
 )
 
 func TestStreamerSubscribe(t *testing.T) {
@@ -69,56 +68,6 @@ func TestStreamerRequestSubscription(t *testing.T) {
 		t.Fatalf("Expected error %v, got %v", "stream foo not registered", err)
 	}
 }
-
-var (
-	hash0         = sha3.Sum256([]byte{0})
-	hash1         = sha3.Sum256([]byte{1})
-	hash2         = sha3.Sum256([]byte{2})
-	hashesTmp     = append(hash0[:], hash1[:]...)
-	hashes        = append(hashesTmp, hash2[:]...)
-	corruptHashes = append(hashes[:40])
-)
-
-type testClient struct {
-	t              string
-	wait0          chan bool
-	wait2          chan bool
-	batchDone      chan bool
-	receivedHashes map[string][]byte
-}
-
-func newTestClient(t string) *testClient {
-	return &testClient{
-		t:              t,
-		wait0:          make(chan bool),
-		wait2:          make(chan bool),
-		batchDone:      make(chan bool),
-		receivedHashes: make(map[string][]byte),
-	}
-}
-
-func (self *testClient) NeedData(ctx context.Context, hash []byte) func(context.Context) error {
-	self.receivedHashes[string(hash)] = hash
-	if bytes.Equal(hash, hash0[:]) {
-		return func(context.Context) error {
-			<-self.wait0
-			return nil
-		}
-	} else if bytes.Equal(hash, hash2[:]) {
-		return func(context.Context) error {
-			<-self.wait2
-			return nil
-		}
-	}
-	return nil
-}
-
-func (self *testClient) BatchDone(Stream, uint64, []byte, []byte) func() (*TakeoverProof, error) {
-	close(self.batchDone)
-	return nil
-}
-
-func (self *testClient) Close() {}
 
 type testServer struct {
 	t            string
@@ -166,6 +115,11 @@ func TestStreamerDownstreamSubscribeUnsubscribeMsgExchange(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
+	hash0 := sha3.Sum256([]byte{0})
+	hash1 := sha3.Sum256([]byte{1})
+	hash2 := sha3.Sum256([]byte{2})
+	hashes := append(hash0[:], append(hash1[:], hash2[:]...)...)
+
 	err = tester.TestExchanges(
 		p2ptest.Exchange{
 			Label: "Subscribe message",
@@ -204,7 +158,7 @@ func TestStreamerDownstreamSubscribeUnsubscribeMsgExchange(t *testing.T) {
 					Code: 2,
 					Msg: &WantedHashesMsg{
 						Stream: stream,
-						Want:   []byte{5},
+						Want:   []byte{5}, // 101, because we want to first and the third hash
 						From:   9,
 						To:     0,
 					},
@@ -481,6 +435,15 @@ func TestStreamerUpstreamSubscribeLiveAndHistory(t *testing.T) {
 }
 
 func TestStreamerDownstreamCorruptHashesMsgExchange(t *testing.T) {
+	var (
+		hash0         = sha3.Sum256([]byte{0})
+		hash1         = sha3.Sum256([]byte{1})
+		hash2         = sha3.Sum256([]byte{2})
+		hashesTmp     = append(hash0[:], hash1[:]...)
+		hashes        = append(hashesTmp, hash2[:]...)
+		corruptHashes = append(hashes[:40])
+	)
+
 	tester, streamer, _, teardown, err := newStreamerTester(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -604,7 +567,7 @@ func TestStreamerDownstreamOfferedHashesMsgExchange(t *testing.T) {
 					Code: 2,
 					Msg: &WantedHashesMsg{
 						Stream: stream,
-						Want:   []byte{5},
+						Want:   []byte{5}, // 101, because we want to first and the third hash, based on the values of `hashes`
 						From:   9,
 						To:     0,
 					},

@@ -41,7 +41,9 @@ import (
 		* Thus we just iterate all nodes and check that their kademlias are healthy
 		* If all kademlias are healthy, the test succeeded, otherwise it failed
 */
-func TestWaitTillHealthy(t *testing.T) {
+
+// TODO: Fix flaky test
+func XTestWaitTillHealthy(t *testing.T) {
 
 	testNodesNum := 10
 
@@ -155,7 +157,8 @@ func createSimServiceMap(discovery bool) map[string]ServiceFunc {
 // With this snapshot we create a new simulation
 // Call WaitTillSnapshotRecreated() function and wait until it returns
 // Iterate the nodes and check if all the connections are successfully recreated
-func TestWaitTillSnapshotRecreated(t *testing.T) {
+// TODO: fix flaky test
+func XTestWaitTillSnapshotRecreated(t *testing.T) {
 	var err error
 	sim := New(createSimServiceMap(true))
 	_, err = sim.AddNodesAndConnectRing(16)

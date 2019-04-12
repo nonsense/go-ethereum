@@ -88,6 +88,9 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 	var wg sync.WaitGroup
 	wg.Add(len(hosts))
 
+	var allHostChunksMu sync.Mutex
+	var allHostChunks []string
+
 	for _, host := range hosts {
 		host := host
 		go func() {
@@ -114,6 +117,10 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 				return
 			}
 
+			allHostChunksMu.Lock()
+			allHostChunks = append(allHostChunks, hostChunks)
+			allHostChunksMu.Unlock()
+
 			yes, no := 0, 0
 			for _, val := range hostChunks {
 				if val == '1' {
@@ -139,6 +146,19 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 	}
 
 	wg.Wait()
+
+	for i := range addrs {
+		var foundAt int
+		for j := range allHostChunks {
+			if allHostChunks[j][i] == '1' {
+				foundAt++
+			}
+		}
+		// if chunk found at less than 2 hosts
+		if foundAt < 2 {
+			log.Error("chunk found at less than two hosts", "foundAt", foundAt, "ref", addrs[i])
+		}
+	}
 
 	if !hasErr && submitMetrics {
 		// remove the chunks stored on the uploader node

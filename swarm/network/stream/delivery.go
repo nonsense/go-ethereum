@@ -30,7 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/network/timeouts"
 	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	"github.com/ethereum/go-ethereum/swarm/storage"
-	opentracing "github.com/opentracing/opentracing-go"
 	olog "github.com/opentracing/opentracing-go/log"
 )
 
@@ -38,9 +37,6 @@ var (
 	processReceivedChunksCount    = metrics.NewRegisteredCounter("network.stream.received_chunks.count", nil)
 	handleRetrieveRequestMsgCount = metrics.NewRegisteredCounter("network.stream.handle_retrieve_request_msg.count", nil)
 	retrieveChunkFail             = metrics.NewRegisteredCounter("network.stream.retrieve_chunks_fail.count", nil)
-
-	requestFromPeersCount     = metrics.NewRegisteredCounter("network.stream.request_from_peers.count", nil)
-	requestFromPeersEachCount = metrics.NewRegisteredCounter("network.stream.request_from_peers_each.count", nil)
 
 	lastReceivedChunksMsg = metrics.GetOrRegisterGauge("network.stream.received_chunks", nil)
 )
@@ -123,11 +119,6 @@ type ChunkDeliveryMsgSyncing ChunkDeliveryMsg
 
 // chunk delivery msg is response to retrieverequest msg
 func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req interface{}) error {
-	var osp opentracing.Span
-	ctx, osp = spancontext.StartSpan(
-		ctx,
-		"handle.chunk.delivery")
-
 	processReceivedChunksCount.Inc(1)
 
 	// record the last time we received a chunk delivery message
@@ -159,22 +150,15 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req int
 
 	log.Trace("handle.chunk.delivery", "ref", msg.Addr, "from peer", sp.ID())
 
-	go func() {
-		defer osp.Finish()
-
-		msg.peer = sp
-		log.Trace("handle.chunk.delivery", "put", msg.Addr)
-		_, err := d.netStore.Put(ctx, mode, storage.NewChunk(msg.Addr, msg.SData))
-		if err != nil {
-			if err == storage.ErrChunkInvalid {
-				// we removed this log because it spams the logs
-				// TODO: Enable this log line
-				// log.Warn("invalid chunk delivered", "peer", sp.ID(), "chunk", msg.Addr, )
-				msg.peer.Drop()
-			}
+	msg.peer = sp
+	_, err := d.netStore.Put(ctx, mode, storage.NewChunk(msg.Addr, msg.SData))
+	if err != nil {
+		if err == storage.ErrChunkInvalid {
+			log.Warn("invalid chunk delivered", "peer", sp.ID(), "chunk", msg.Addr)
+			msg.peer.Drop()
 		}
-		log.Trace("handle.chunk.delivery", "done put", msg.Addr, "err", err)
-	}()
+	}
+	log.Trace("handle.chunk.delivery", "done put", msg.Addr, "err", err)
 	return nil
 }
 
@@ -184,13 +168,10 @@ func (d *Delivery) Close() {
 	close(d.quit)
 }
 
-// RequestFromPeers sends a chunk retrieve request to a peer
-// The closest peer that hasn't already been sent to is chosen
-func (d *Delivery) RequestFromPeers(ctx context.Context, req *storage.Request, localID enode.ID) (*enode.ID, error) {
-	metrics.GetOrRegisterCounter("delivery.requestfrompeers", nil).Inc(1)
-
+// FindPeer is returning the closest peer from Kademlia that a chunk
+// request hasn't already been sent to
+func (d *Delivery) FindPeer(req *storage.Request) (*Peer, error) {
 	var sp *Peer
-
 	var err error
 
 	depth := d.kad.NeighbourhoodDepth()
@@ -210,7 +191,7 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *storage.Request, l
 
 		// skip peers that we have already tried
 		if req.SkipPeer(id.String()) {
-			log.Trace("Delivery.RequestFromPeers: skip peer", "peer", id, "ref", req.Addr.String())
+			log.Trace("findpeer skip peer", "peer", id, "ref", req.Addr.String())
 			return true
 		}
 
@@ -218,7 +199,7 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *storage.Request, l
 		prox := chunk.Proximity(req.Addr, d.kad.BaseAddr())
 		// proximity between the req.Addr and our base addr
 		if po < depth && prox >= depth {
-			log.Trace("Delivery.RequestFromPeers: skip peer because depth", "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+			log.Trace("findpeer skip peer because depth", "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
 
 			err = fmt.Errorf("not going outside of depth; ref=%s po=%v depth=%v prox=%v", req.Addr.String(), po, depth, prox)
 			return false
@@ -227,20 +208,28 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *storage.Request, l
 		sp = d.getPeer(id)
 
 		// sp is nil, when we encounter a peer that is not registered for delivery, i.e. doesn't support the `stream` protocol
-		if sp == nil {
-			return true
-		}
-
-		return false
+		return sp == nil
 	})
 
 	if err != nil {
-		log.Error(err.Error())
 		return nil, err
 	}
 
 	if sp == nil {
-		return nil, errors.New("no peer found") // TODO: maybe clear the peers to skip and try again, or return a failure?
+		return nil, errors.New("no peer found")
+	}
+
+	return sp, nil
+}
+
+// RequestFromPeers sends a chunk retrieve request to the next found peer
+func (d *Delivery) RequestFromPeers(ctx context.Context, req *storage.Request, localID enode.ID) (*enode.ID, error) {
+	metrics.GetOrRegisterCounter("delivery.requestfrompeers", nil).Inc(1)
+
+	sp, err := d.FindPeer(req)
+	if err != nil {
+		log.Error(err.Error())
+		return nil, err
 	}
 
 	// setting this value in the context creates a new span that can persist across the sendpriority queue and the network roundtrip

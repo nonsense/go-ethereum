@@ -17,6 +17,7 @@
 package stream
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -44,7 +45,7 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/storage/localstore"
 	"github.com/ethereum/go-ethereum/swarm/storage/mock"
 	"github.com/ethereum/go-ethereum/swarm/testutil"
-	colorable "github.com/mattn/go-colorable"
+	"golang.org/x/crypto/sha3"
 )
 
 var (
@@ -69,7 +70,7 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 
 	log.PrintOrigins(true)
-	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*loglevel), log.StreamHandler(colorable.NewColorableStderr(), log.TerminalFormat(true))))
+	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*loglevel), log.StreamHandler(os.Stdout, log.TerminalFormat(true))))
 }
 
 // newNetStoreAndDelivery is a default constructor for BzzAddr, NetStore and Delivery, used in Simulations
@@ -81,7 +82,7 @@ func newNetStoreAndDelivery(ctx *adapters.ServiceContext, bucket *sync.Map) (*ne
 		return nil, nil, nil, nil, err
 	}
 
-	netStore.NewNetFetcherFunc = network.NewFetcherFactory(delivery.RequestFromPeers, true).New
+	netStore.RemoteGet = delivery.RequestFromPeers
 
 	return addr, netStore, delivery, cleanup, nil
 }
@@ -93,13 +94,13 @@ func newNetStoreAndDeliveryWithBzzAddr(ctx *adapters.ServiceContext, bucket *syn
 		return nil, nil, nil, err
 	}
 
-	netStore.NewNetFetcherFunc = network.NewFetcherFactory(delivery.RequestFromPeers, true).New
+	netStore.RemoteGet = delivery.RequestFromPeers
 
 	return netStore, delivery, cleanup, nil
 }
 
 // newNetStoreAndDeliveryWithRequestFunc is a constructor for NetStore and Delivery, used in Simulations, accepting any NetStore.RequestFunc
-func newNetStoreAndDeliveryWithRequestFunc(ctx *adapters.ServiceContext, bucket *sync.Map, rf network.RequestFunc) (*network.BzzAddr, *storage.NetStore, *Delivery, func(), error) {
+func newNetStoreAndDeliveryWithRequestFunc(ctx *adapters.ServiceContext, bucket *sync.Map, rf storage.RemoteGetFunc) (*network.BzzAddr, *storage.NetStore, *Delivery, func(), error) {
 	addr := network.NewAddr(ctx.Config.Node())
 
 	netStore, delivery, cleanup, err := netStoreAndDeliveryWithAddr(ctx, bucket, addr)
@@ -107,7 +108,7 @@ func newNetStoreAndDeliveryWithRequestFunc(ctx *adapters.ServiceContext, bucket 
 		return nil, nil, nil, nil, err
 	}
 
-	netStore.NewNetFetcherFunc = network.NewFetcherFactory(rf, true).New
+	netStore.RemoteGet = rf
 
 	return addr, netStore, delivery, cleanup, nil
 }
@@ -120,14 +121,10 @@ func netStoreAndDeliveryWithAddr(ctx *adapters.ServiceContext, bucket *sync.Map,
 		return nil, nil, nil, err
 	}
 
-	netStore, err := storage.NewNetStore(localStore, nil)
-	if err != nil {
-		localStore.Close()
-		localStoreCleanup()
-		return nil, nil, nil, err
-	}
+	netStore := storage.NewNetStore(localStore, enode.ID{})
 
-	fileStore := storage.NewFileStore(netStore, storage.NewFileStoreParams())
+	lnetStore := storage.NewLNetStore(netStore)
+	fileStore := storage.NewFileStore(lnetStore, storage.NewFileStoreParams())
 
 	kad := network.NewKademlia(addr.Over(), network.NewKadParams())
 	delivery := NewDelivery(kad, netStore)
@@ -167,15 +164,11 @@ func newStreamerTester(registryOptions *RegistryOptions) (*p2ptest.ProtocolTeste
 		return nil, nil, nil, nil, err
 	}
 
-	netStore, err := storage.NewNetStore(localStore, nil)
-	if err != nil {
-		localStore.Close()
-		removeDataDir()
-		return nil, nil, nil, nil, err
-	}
+	netStore := storage.NewNetStore(localStore, enode.ID{})
 
 	delivery := NewDelivery(to, netStore)
-	netStore.NewNetFetcherFunc = network.NewFetcherFactory(delivery.RequestFromPeers, true).New
+	netStore.RemoteGet = delivery.RequestFromPeers
+
 	intervalsStore := state.NewInmemoryStore()
 	streamer := NewRegistry(addr.ID(), delivery, netStore, intervalsStore, registryOptions, nil)
 
@@ -399,3 +392,55 @@ func (b *boolean) bool() bool {
 
 	return b.v
 }
+
+var (
+	hash0     = sha3.Sum256([]byte{0})
+	hash1     = sha3.Sum256([]byte{1})
+	hash2     = sha3.Sum256([]byte{2})
+	hashesTmp = append(hash0[:], hash1[:]...)
+	hashes    = append(hashesTmp, hash2[:]...)
+)
+
+type testClient struct {
+	t              string
+	wait0          chan bool
+	wait2          chan bool
+	batchDone      chan bool
+	receivedHashes map[string][]byte
+}
+
+func newTestClient(t string) *testClient {
+	return &testClient{
+		t:              t,
+		wait0:          make(chan bool),
+		wait2:          make(chan bool),
+		batchDone:      make(chan bool),
+		receivedHashes: make(map[string][]byte),
+	}
+}
+
+func (self *testClient) NeedData(ctx context.Context, hash []byte) (bool, func(context.Context) error) {
+	// we always return false for the first argument,
+	// because we want to make sure we trigger a request in tests
+	// (i.e. add a bit to the bitvector of WantedHashes)
+	self.receivedHashes[string(hash)] = hash
+	if bytes.Equal(hash, hash0[:]) {
+		return false, func(context.Context) error {
+			<-self.wait0
+			return nil
+		}
+	} else if bytes.Equal(hash, hash2[:]) {
+		return false, func(context.Context) error {
+			<-self.wait2
+			return nil
+		}
+	}
+	return false, nil
+}
+
+func (self *testClient) BatchDone(Stream, uint64, []byte, []byte) func() (*TakeoverProof, error) {
+	close(self.batchDone)
+	return nil
+}
+
+func (self *testClient) Close() {}

@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/swarm/chunk"
+	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/network/timeouts"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 )
@@ -60,9 +61,6 @@ func RegisterSwarmSyncerServer(streamer *Registry, netStore *storage.NetStore) {
 		}
 		return NewSwarmSyncerServer(po, netStore)
 	})
-	// streamer.RegisterServerFunc(stream, func(p *Peer) (Server, error) {
-	// 	return NewOutgoingProvableSwarmSyncer(po, db)
-	// })
 }
 
 // Close needs to be called on a stream server
@@ -72,7 +70,7 @@ func (s *SwarmSyncerServer) Close() {
 
 // GetData retrieves the actual chunk from netstore
 func (s *SwarmSyncerServer) GetData(ctx context.Context, key []byte) ([]byte, error) {
-	//TODO: this should be localstore, not netstore?
+	//this should be localstore, not netstore (read further comment below)
 	r := &storage.Request{
 		Addr:     storage.Address(key),
 		Origin:   enode.ID{},
@@ -105,10 +103,12 @@ func (s *SwarmSyncerServer) SessionIndex() (uint64, error) {
 // are added in batchTimeout period, the batch will be returned. This function
 // will block until new chunks are received from localstore pull subscription.
 func (s *SwarmSyncerServer) SetNextBatch(from, to uint64) ([]byte, uint64, uint64, *HandoverProof, error) {
+	if from > 0 {
+		from--
+	}
+
 	descriptors, stop := s.netStore.SubscribePull(context.Background(), s.po, from, to)
 	defer stop()
-
-	const batchTimeout = 2 * time.Second
 
 	var (
 		batch        []byte
@@ -131,6 +131,7 @@ func (s *SwarmSyncerServer) SetNextBatch(from, to uint64) ([]byte, uint64, uint6
 				iterate = false
 				break
 			}
+			log.Trace("syncer add chunk", "ref", d.Address, "po", s.po, "from", from, "to", to)
 			batch = append(batch, d.Address[:]...)
 			// This is the most naive approach to label the chunk as synced
 			// allowing it to be garbage collected. A proper way requires
@@ -150,12 +151,12 @@ func (s *SwarmSyncerServer) SetNextBatch(from, to uint64) ([]byte, uint64, uint6
 				iterate = false
 			}
 			if timer == nil {
-				timer = time.NewTimer(batchTimeout)
+				timer = time.NewTimer(timeouts.BatchTimeout)
 			} else {
 				if !timer.Stop() {
 					<-timer.C
 				}
-				timer.Reset(batchTimeout)
+				timer.Reset(timeouts.BatchTimeout)
 			}
 			timerC = timer.C
 		case <-timerC:
@@ -197,7 +198,6 @@ func RegisterSwarmSyncerClient(streamer *Registry, netStore *storage.NetStore) {
 	})
 }
 
-// NeedData
 func (s *SwarmSyncerClient) NeedData(ctx context.Context, key []byte) (loaded bool, wait func(context.Context) error) {
 	start := time.Now()
 
@@ -210,9 +210,7 @@ func (s *SwarmSyncerClient) NeedData(ctx context.Context, key []byte) (loaded bo
 		select {
 		case <-fi.Delivered:
 			metrics.GetOrRegisterResettingTimer(fmt.Sprintf("fetcher.%s.syncer", fi.CreatedBy), nil).UpdateSince(start)
-		case <-time.After(20 * time.Second):
-			// TODO: whats the proper timeout here? it is not the global fetcher timeout,
-			// since we don't do NetStore.Get(), but just wait for chunk delivery via offered/wanted hashes
+		case <-time.After(timeouts.SyncerClientWaitTimeout):
 			metrics.GetOrRegisterCounter("fetcher.syncer.timeout", nil).Inc(1)
 			return fmt.Errorf("chunk not delivered through syncing after 20sec. ref=%s", fmt.Sprintf("%x", key))
 		}
@@ -220,12 +218,7 @@ func (s *SwarmSyncerClient) NeedData(ctx context.Context, key []byte) (loaded bo
 	}
 }
 
-// BatchDone
 func (s *SwarmSyncerClient) BatchDone(stream Stream, from uint64, hashes []byte, root []byte) func() (*TakeoverProof, error) {
-	// TODO: reenable this with putter/getter refactored code
-	// if s.chunker != nil {
-	// 	return func() (*TakeoverProof, error) { return s.TakeoverProof(stream, from, hashes, root) }
-	// }
 	return nil
 }
 

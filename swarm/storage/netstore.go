@@ -36,7 +36,7 @@ import (
 
 // maximum number of forwarded requests (hops), to make sure requests are not
 // forwarded forever in peer loops
-const maxHopCount uint8 = 10
+const maxHopCount uint8 = 17
 
 // FetcherItem are stored in fetchers map and signal to all interested parties if a given chunk is delivered
 // the mutex controls who closes the channel, and make sure we close the channel only once
@@ -50,10 +50,12 @@ type FetcherItem struct {
 
 	CreatedAt time.Time // timestamp when the fetcher was created, used for metrics measuring lifetime of fetchers
 	CreatedBy string    // who created the fethcer - "request" or "syncing", used for metrics measuring lifecycle of fetchers
+
+	RequestedBySyncer bool // whether we have issued at least once a request through Offered/Wanted hashes flow
 }
 
 func NewFetcherItem() *FetcherItem {
-	return &FetcherItem{make(chan struct{}), sync.Once{}, time.Now(), ""}
+	return &FetcherItem{make(chan struct{}), sync.Once{}, time.Now(), "", false}
 }
 
 func (fi *FetcherItem) SafeClose() {
@@ -94,7 +96,7 @@ func (n *NetStore) Put(ctx context.Context, mode chunk.ModePut, ch Chunk) (bool,
 	n.putMu.Lock()
 	defer n.putMu.Unlock()
 
-	log.Trace("netstore.put", "ref", ch.Address().String())
+	log.Trace("netstore.put", "ref", ch.Address().String(), "mode", mode)
 
 	// put the chunk to the localstore, there should be no error
 	exists, err := n.Store.Put(ctx, mode, ch)
@@ -102,7 +104,6 @@ func (n *NetStore) Put(ctx context.Context, mode chunk.ModePut, ch Chunk) (bool,
 		return exists, err
 	}
 
-	// TODO: probably safe to put this in a go-routine
 	// notify RemoteGet about a chunk being stored
 	fi, ok := n.fetchers.Load(ch.Address().String())
 	if ok {
@@ -152,12 +153,12 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 
 		log.Trace("netstore.chunk-not-in-localstore", "ref", ref.String(), "hopCount", req.HopCount)
 		v, err, _ := n.requestGroup.Do(ref.String(), func() (interface{}, error) {
-			//TODO: decide if we want to issue a retrieve request if a fetcher
+			// currently we issue a retrieve request if a fetcher
 			// has already been created by a syncer for that particular chunk.
-			// for now we issue a retrieve request, so it is possible to
+			// so it is possible to
 			// have 2 in-flight requests for the same chunk - one by a
 			// syncer (offered/wanted/deliver flow) and one from
-			// here - retrieve request!
+			// here - retrieve request
 			has, fi, _ := n.HasWithCallback(ctx, ref, "request")
 			if !has {
 				err := n.RemoteFetch(ctx, req, fi)
@@ -172,7 +173,7 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 				return nil, errors.New("item should have been in localstore, but it is not")
 			}
 
-			// fi could be nil if the chunk was added to the NetStore inbetween n.store.Get and the call to n.HasWithCallback
+			// fi could be nil if the chunk was added to the NetStore between n.store.Get and the call to n.HasWithCallback
 			if fi != nil {
 				metrics.GetOrRegisterResettingTimer(fmt.Sprintf("fetcher.%s.request", fi.CreatedBy), nil).UpdateSince(start)
 			}
@@ -285,5 +286,12 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address, interestedP
 	} else {
 		fi.CreatedBy = interestedParty
 	}
+
+	// if fetcher created by request, but we get a call from syncer, make sure we issue a second request
+	if fi.CreatedBy != interestedParty && !fi.RequestedBySyncer {
+		fi.RequestedBySyncer = true
+		return false, fi, false
+	}
+
 	return false, fi, loaded
 }
