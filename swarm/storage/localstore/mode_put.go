@@ -18,8 +18,10 @@ package localstore
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/swarm/chunk"
+	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/shed"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -107,12 +109,13 @@ func (db *DB) put(mode chunk.ModePut, item shed.Item) (exists bool, err error) {
 		// put to indexes: retrieve, push, pull
 
 		exists, err = db.retrievalDataIndex.Has(item)
+		po := db.po(item.Address)
 		if err != nil {
 			return false, err
 		}
 		if !exists {
 			item.StoreTimestamp = now()
-			item.BinID, err = db.binIDs.IncInBatch(batch, uint64(db.po(item.Address)))
+			item.BinID, err = db.binIDs.IncInBatch(batch, uint64(po))
 			if err != nil {
 				return false, err
 			}
@@ -121,6 +124,10 @@ func (db *DB) put(mode chunk.ModePut, item shed.Item) (exists bool, err error) {
 			triggerPullFeed = true
 			db.pushIndex.PutInBatch(batch, item)
 			triggerPushFeed = true
+
+			log.Trace("item pullindex-new", "ref", fmt.Sprintf("%x", item.Address), "kabin", po, "bin", item.BinID, "ts", item.StoreTimestamp)
+		} else {
+			log.Trace("item pullindex-exists", "ref", fmt.Sprintf("%x", item.Address), "kabin", po, "bin", item.BinID, "ts", item.StoreTimestamp)
 		}
 
 	case chunk.ModePutSync:
