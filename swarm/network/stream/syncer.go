@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/swarm/chunk"
+	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 )
 
@@ -114,6 +115,8 @@ func (s *SwarmSyncerServer) SetNextBatch(from, to uint64) ([]byte, uint64, uint6
 				iterate = false
 				break
 			}
+
+			log.Trace("syncer add chunk", "ref", d.Address, "po", s.po, "from", from, "to", to)
 			batch = append(batch, d.Address[:]...)
 			// This is the most naive approach to label the chunk as synced
 			// allowing it to be garbage collected. A proper way requires

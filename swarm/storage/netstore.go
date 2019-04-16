@@ -80,6 +80,8 @@ func (n *NetStore) Put(ctx context.Context, mode chunk.ModePut, ch Chunk) (bool,
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	log.Trace("netstore.put", "ref", ch.Address().String(), "mode", mode)
+
 	// put to the chunk to the store, there should be no error
 	exists, err := n.Store.Put(ctx, mode, ch)
 	if err != nil {
