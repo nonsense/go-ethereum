@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/swarm/chunk"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	"github.com/ethereum/go-ethereum/swarm/network/timeouts"
@@ -70,20 +69,13 @@ func (s *SwarmSyncerServer) Close() {
 
 // GetData retrieves the actual chunk from netstore
 func (s *SwarmSyncerServer) GetData(ctx context.Context, key []byte) ([]byte, error) {
-	//this should be localstore, not netstore (read further comment below)
-	r := &storage.Request{
-		Addr:     storage.Address(key),
-		Origin:   enode.ID{},
-		HopCount: 0,
-	}
-
 	// this timeout shouldn't be necessary as syncer server is supposed to go straight to localstore,
 	// but if a chunk is garbage collected while we actually offered it, it is possible for this
 	// to trigger a network request
 	ctx, cancel := context.WithTimeout(ctx, timeouts.FetcherGlobalTimeout)
 	defer cancel()
 
-	chunk, err := s.netStore.Get(ctx, chunk.ModeGetSync, r)
+	chunk, err := s.netStore.Get(ctx, chunk.ModeGetSync, storage.NewRequest(storage.Address(key), 0))
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +95,7 @@ func (s *SwarmSyncerServer) SessionIndex() (uint64, error) {
 // are added in batchTimeout period, the batch will be returned. This function
 // will block until new chunks are received from localstore pull subscription.
 func (s *SwarmSyncerServer) SetNextBatch(from, to uint64) ([]byte, uint64, uint64, *HandoverProof, error) {
+	//TODO: maybe add unit test for intervals usage in netstore/localstore together with SwarmSyncerServer?
 	if from > 0 {
 		from--
 	}
@@ -201,8 +194,8 @@ func RegisterSwarmSyncerClient(streamer *Registry, netStore *storage.NetStore) {
 func (s *SwarmSyncerClient) NeedData(ctx context.Context, key []byte) (loaded bool, wait func(context.Context) error) {
 	start := time.Now()
 
-	has, fi, loaded := s.netStore.HasWithCallback(ctx, key, "syncer")
-	if has {
+	fi, loaded, ok := s.netStore.GetOrCreateFetcherItem(ctx, key, "syncer")
+	if !ok {
 		return loaded, nil
 	}
 

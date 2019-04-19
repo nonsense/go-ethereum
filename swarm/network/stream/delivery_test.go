@@ -216,10 +216,8 @@ func TestStreamerDownstreamChunkDeliveryMsgExchange(t *testing.T) {
 	}
 	defer teardown()
 
-	streamer.RegisterClientFunc("foo", func(p *Peer, t string, live bool) (Client, error) {
-		return &testClient{
-			t: t,
-		}, nil
+	streamer.RegisterClientFunc("foo", func(p *Peer, _ string, live bool) (Client, error) {
+		return &testClient{}, nil
 	})
 
 	node := tester.Nodes[0]
@@ -552,11 +550,7 @@ func benchmarkDeliveryFromNodes(b *testing.B, nodes, chunkCount int, skipCheck b
 			errs := make(chan error)
 			for _, hash := range hashes {
 				go func(h storage.Address) {
-					r := storage.NewRequest(
-						h,
-						0,
-					)
-					_, err := netStore.Get(ctx, chunk.ModeGetRequest, r)
+					_, err := netStore.Get(ctx, chunk.ModeGetRequest, storage.NewRequest(h, 0))
 					log.Warn("test check netstore get", "hash", h, "err", err)
 					errs <- err
 				}(hash)

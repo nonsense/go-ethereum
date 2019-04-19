@@ -126,10 +126,10 @@ func (db *DB) put(mode chunk.ModePut, item shed.Item) (exists bool, err error) {
 		// put to indexes: retrieve, push, pull
 
 		exists, err = db.retrievalDataIndex.Has(item)
-		po := db.po(item.Address)
 		if err != nil {
 			return false, err
 		}
+		po := db.po(item.Address)
 		if !exists {
 			item.StoreTimestamp = now()
 			item.BinID, err = db.binIDs.IncInBatch(batch, uint64(po))

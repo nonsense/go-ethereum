@@ -300,8 +300,8 @@ func newTestExternalClient(netStore *storage.NetStore) *testExternalClient {
 }
 
 func (c *testExternalClient) NeedData(ctx context.Context, hash []byte) (bool, func(context.Context) error) {
-	has, fi, loaded := c.netStore.HasWithCallback(ctx, hash, "syncer")
-	if has {
+	fi, loaded, ok := c.netStore.GetOrCreateFetcherItem(ctx, hash, "syncer")
+	if !ok {
 		return loaded, nil
 	}
 

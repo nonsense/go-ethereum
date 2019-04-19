@@ -401,8 +401,8 @@ var (
 	hashes    = append(hashesTmp, hash2[:]...)
 )
 
+// testClient is a mock SwarmSyncerClient used in streamer and delivery tests.
 type testClient struct {
-	t              string
 	wait0          chan bool
 	wait2          chan bool
 	batchDone      chan bool
@@ -411,7 +411,6 @@ type testClient struct {
 
 func newTestClient(t string) *testClient {
 	return &testClient{
-		t:              t,
 		wait0:          make(chan bool),
 		wait2:          make(chan bool),
 		batchDone:      make(chan bool),

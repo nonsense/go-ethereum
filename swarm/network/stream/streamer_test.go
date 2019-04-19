@@ -70,13 +70,11 @@ func TestStreamerRequestSubscription(t *testing.T) {
 }
 
 type testServer struct {
-	t            string
 	sessionIndex uint64
 }
 
-func newTestServer(t string, sessionIndex uint64) *testServer {
+func newTestServer(sessionIndex uint64) *testServer {
 	return &testServer{
-		t:            t,
 		sessionIndex: sessionIndex,
 	}
 }
@@ -204,7 +202,7 @@ func TestStreamerUpstreamSubscribeUnsubscribeMsgExchange(t *testing.T) {
 	stream := NewStream("foo", "", false)
 
 	streamer.RegisterServerFunc("foo", func(p *Peer, t string, live bool) (Server, error) {
-		return newTestServer(t, 10), nil
+		return newTestServer(10), nil
 	})
 
 	node := tester.Nodes[0]
@@ -271,7 +269,7 @@ func TestStreamerUpstreamSubscribeUnsubscribeMsgExchangeLive(t *testing.T) {
 	stream := NewStream("foo", "", true)
 
 	streamer.RegisterServerFunc("foo", func(p *Peer, t string, live bool) (Server, error) {
-		return newTestServer(t, 0), nil
+		return newTestServer(0), nil
 	})
 
 	node := tester.Nodes[0]
@@ -335,7 +333,7 @@ func TestStreamerUpstreamSubscribeErrorMsgExchange(t *testing.T) {
 	defer teardown()
 
 	streamer.RegisterServerFunc("foo", func(p *Peer, t string, live bool) (Server, error) {
-		return newTestServer(t, 0), nil
+		return newTestServer(0), nil
 	})
 
 	stream := NewStream("bar", "", true)
@@ -381,7 +379,7 @@ func TestStreamerUpstreamSubscribeLiveAndHistory(t *testing.T) {
 	stream := NewStream("foo", "", true)
 
 	streamer.RegisterServerFunc("foo", func(p *Peer, t string, live bool) (Server, error) {
-		return newTestServer(t, 10), nil
+		return newTestServer(10), nil
 	})
 
 	node := tester.Nodes[0]
@@ -615,7 +613,7 @@ func TestStreamerRequestSubscriptionQuitMsgExchange(t *testing.T) {
 	defer teardown()
 
 	streamer.RegisterServerFunc("foo", func(p *Peer, t string, live bool) (Server, error) {
-		return newTestServer(t, 10), nil
+		return newTestServer(10), nil
 	})
 
 	node := tester.Nodes[0]
@@ -751,7 +749,7 @@ func TestMaxPeerServersWithUnsubscribe(t *testing.T) {
 	defer teardown()
 
 	streamer.RegisterServerFunc("foo", func(p *Peer, t string, live bool) (Server, error) {
-		return newTestServer(t, 0), nil
+		return newTestServer(0), nil
 	})
 
 	node := tester.Nodes[0]
@@ -825,7 +823,7 @@ func TestMaxPeerServersWithoutUnsubscribe(t *testing.T) {
 	defer teardown()
 
 	streamer.RegisterServerFunc("foo", func(p *Peer, t string, live bool) (Server, error) {
-		return newTestServer(t, 0), nil
+		return newTestServer(0), nil
 	})
 
 	node := tester.Nodes[0]

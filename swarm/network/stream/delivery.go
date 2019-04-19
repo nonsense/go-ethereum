@@ -156,7 +156,10 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req int
 		if err == storage.ErrChunkInvalid {
 			log.Warn("invalid chunk delivered", "peer", sp.ID(), "chunk", msg.Addr)
 			msg.peer.Drop()
+			return nil
 		}
+		log.Error(err.Error())
+		return err
 	}
 	log.Trace("handle.chunk.delivery", "done put", msg.Addr, "err", err)
 	return nil
@@ -228,7 +231,7 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *storage.Request, l
 
 	sp, err := d.FindPeer(req)
 	if err != nil {
-		log.Error(err.Error())
+		log.Trace(err.Error())
 		return nil, err
 	}
 

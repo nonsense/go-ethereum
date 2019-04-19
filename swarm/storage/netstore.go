@@ -54,10 +54,14 @@ type FetcherItem struct {
 	RequestedBySyncer bool // whether we have issued at least once a request through Offered/Wanted hashes flow
 }
 
+// NewFetcherItem is a constructor for a FetcherItem
 func NewFetcherItem() *FetcherItem {
 	return &FetcherItem{make(chan struct{}), sync.Once{}, time.Now(), "", false}
 }
 
+// SafeClose signals to interested parties (those waiting for a signal on fi.Delivered) that a chunk is delivered.
+// It closes the fi.Delivered channel through the sync.Once object, because it is possible for a chunk to be
+// delivered multiple times concurrently.
 func (fi *FetcherItem) SafeClose() {
 	fi.once.Do(func() {
 		close(fi.Delivered)
@@ -82,11 +86,8 @@ type NetStore struct {
 // constructor function that can create a fetch function for a specific chunk address.
 func NewNetStore(store chunk.Store, localID enode.ID) *NetStore {
 	return &NetStore{
-		Store:        store,
-		localID:      localID,
-		fetchers:     sync.Map{},
-		putMu:        sync.Mutex{},
-		requestGroup: singleflight.Group{},
+		Store:   store,
+		localID: localID,
 	}
 }
 
@@ -109,7 +110,7 @@ func (n *NetStore) Put(ctx context.Context, mode chunk.ModePut, ch Chunk) (bool,
 	if ok {
 		// we need SafeClose, because it is possible for a chunk to both be
 		// delivered through syncing and through a retrieve request
-		fii, _ := fi.(*FetcherItem)
+		fii := fi.(*FetcherItem)
 		fii.SafeClose()
 		log.Trace("netstore.put chunk delivered and stored", "ref", ch.Address().String())
 
@@ -152,6 +153,7 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 		}
 
 		log.Trace("netstore.chunk-not-in-localstore", "ref", ref.String(), "hopCount", req.HopCount)
+
 		v, err, _ := n.requestGroup.Do(ref.String(), func() (interface{}, error) {
 			// currently we issue a retrieve request if a fetcher
 			// has already been created by a syncer for that particular chunk.
@@ -159,8 +161,8 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 			// have 2 in-flight requests for the same chunk - one by a
 			// syncer (offered/wanted/deliver flow) and one from
 			// here - retrieve request
-			has, fi, _ := n.HasWithCallback(ctx, ref, "request")
-			if !has {
+			fi, _, ok := n.GetOrCreateFetcherItem(ctx, ref, "request")
+			if ok {
 				err := n.RemoteFetch(ctx, req, fi)
 				if err != nil {
 					return nil, err
@@ -173,7 +175,7 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 				return nil, errors.New("item should have been in localstore, but it is not")
 			}
 
-			// fi could be nil if the chunk was added to the NetStore between n.store.Get and the call to n.HasWithCallback
+			// fi could be nil (when ok == false) if the chunk was added to the NetStore between n.store.Get and the call to n.GetOrCreateFetcherItem
 			if fi != nil {
 				metrics.GetOrRegisterResettingTimer(fmt.Sprintf("fetcher.%s.request", fi.CreatedBy), nil).UpdateSince(start)
 			}
@@ -181,18 +183,18 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 			return ch, nil
 		})
 
-		res, _ := v.(Chunk)
-
-		log.Trace("netstore.singleflight returned", "ref", ref.String(), "err", err)
-
 		if err != nil {
 			log.Error(err.Error(), "ref", ref)
 			return nil, err
 		}
 
-		log.Trace("netstore return", "ref", ref.String(), "chunk len", len(res.Data()))
+		c := v.(Chunk)
 
-		return res, nil
+		log.Trace("netstore.singleflight returned", "ref", ref.String(), "err", err)
+
+		log.Trace("netstore return", "ref", ref.String(), "chunk len", len(c.Data()))
+
+		return c, nil
 	}
 
 	ctx, ssp := spancontext.StartSpan(
@@ -262,7 +264,9 @@ func (n *NetStore) Has(ctx context.Context, ref Address) (bool, error) {
 	return n.Store.Has(ctx, ref)
 }
 
-func (n *NetStore) HasWithCallback(ctx context.Context, ref Address, interestedParty string) (bool, *FetcherItem, bool) {
+// GetOrCreateFetcherItem returns a FetcherItem for a given chunk, if this chunk is not in the LocalStore.
+// If the chunk is in the LocalStore, it returns nil for the FetcherItem and ok == false
+func (n *NetStore) GetOrCreateFetcherItem(ctx context.Context, ref Address, interestedParty string) (fi *FetcherItem, loaded bool, ok bool) {
 	n.putMu.Lock()
 	defer n.putMu.Unlock()
 
@@ -271,18 +275,14 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address, interestedP
 		log.Error(err.Error())
 	}
 	if has {
-		return true, nil, false
+		return nil, false, false
 	}
 
-	fi := NewFetcherItem()
+	fi = NewFetcherItem()
 	v, loaded := n.fetchers.LoadOrStore(ref.String(), fi)
 	log.Trace("netstore.has-with-callback.loadorstore", "ref", ref.String(), "loaded", loaded)
 	if loaded {
-		var ok bool
-		fi, ok = v.(*FetcherItem)
-		if !ok {
-			panic("loaded item from n.fetchers is not *FetcherItem")
-		}
+		fi = v.(*FetcherItem)
 	} else {
 		fi.CreatedBy = interestedParty
 	}
@@ -290,8 +290,8 @@ func (n *NetStore) HasWithCallback(ctx context.Context, ref Address, interestedP
 	// if fetcher created by request, but we get a call from syncer, make sure we issue a second request
 	if fi.CreatedBy != interestedParty && !fi.RequestedBySyncer {
 		fi.RequestedBySyncer = true
-		return false, fi, false
+		return fi, false, true
 	}
 
-	return false, fi, loaded
+	return fi, loaded, true
 }

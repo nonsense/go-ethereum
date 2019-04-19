@@ -10,7 +10,7 @@ var FailedPeerSkipDelay = 1 * time.Second
 // Basically this is the amount of time a singleflight request for a given chunk lives
 var FetcherGlobalTimeout = 10 * time.Second
 
-// SearchTimeout is the max time we wait for a peer to deliver a chunk we requests, after which we try another peer
+// SearchTimeout is the max time requests wait for a peer to deliver a chunk, after which another peer is tried
 var SearchTimeout = 200 * time.Millisecond
 
 // SyncerClientWaitTimeout is the max time a syncer client waits for a chunk to be delivered during syncing

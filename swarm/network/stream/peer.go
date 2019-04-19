@@ -90,8 +90,6 @@ func NewPeer(peer *protocols.Peer, streamer *Registry) *Peer {
 func (p *Peer) Deliver(ctx context.Context, chunk storage.Chunk, syncing bool) error {
 	var msg interface{}
 
-	spanName := "send.chunk.delivery"
-
 	//we send different types of messages if delivery is for syncing or retrievals,
 	//even if handling and content of the message are the same,
 	//because swap accounting decides which messages need accounting based on the message type
@@ -100,13 +98,11 @@ func (p *Peer) Deliver(ctx context.Context, chunk storage.Chunk, syncing bool) e
 			Addr:  chunk.Address(),
 			SData: chunk.Data(),
 		}
-		spanName += ".syncing"
 	} else {
 		msg = &ChunkDeliveryMsgRetrieval{
 			Addr:  chunk.Address(),
 			SData: chunk.Data(),
 		}
-		spanName += ".retrieval"
 	}
 
 	return p.Send(ctx, msg)
