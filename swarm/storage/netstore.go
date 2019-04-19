@@ -184,7 +184,7 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 		})
 
 		if err != nil {
-			log.Error(err.Error(), "ref", ref)
+			log.Trace(err.Error(), "ref", ref)
 			return nil, err
 		}
 
