@@ -116,6 +116,7 @@ func (n *NetStore) Put(ctx context.Context, mode chunk.ModePut, ch Chunk) (bool,
 
 		metrics.GetOrRegisterResettingTimer(fmt.Sprintf("netstore.fetcher.lifetime.%s", fii.CreatedBy), nil).UpdateSince(fii.CreatedAt)
 
+		// helper snippet to log if a chunk took way to long to be delivered
 		if time.Since(fii.CreatedAt) > 5*time.Second {
 			log.Trace("netstore.put slow chunk delivery", "ref", ch.Address().String())
 		}
@@ -145,7 +146,7 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 	if err != nil {
 		// TODO: fix comparison - we should be comparing against leveldb.ErrNotFound, this error should be wrapped.
 		if err != ErrChunkNotFound && err != leveldb.ErrNotFound {
-			log.Error("got error from LocalStore other than leveldb.ErrNotFound or ErrChunkNotFound", "err", err)
+			log.Error("localstore get error", "err", err)
 		}
 
 		if req.HopCount >= maxHopCount {

@@ -205,7 +205,7 @@ func (s *SwarmSyncerClient) NeedData(ctx context.Context, key []byte) (loaded bo
 			metrics.GetOrRegisterResettingTimer(fmt.Sprintf("fetcher.%s.syncer", fi.CreatedBy), nil).UpdateSince(start)
 		case <-time.After(timeouts.SyncerClientWaitTimeout):
 			metrics.GetOrRegisterCounter("fetcher.syncer.timeout", nil).Inc(1)
-			return fmt.Errorf("chunk not delivered through syncing after 20sec. ref=%s", fmt.Sprintf("%x", key))
+			return fmt.Errorf("chunk not delivered through syncing after %dsec. ref=%s", timeouts.SyncerClientWaitTimeout, fmt.Sprintf("%x", key))
 		}
 		return nil
 	}

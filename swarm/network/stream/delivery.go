@@ -94,7 +94,7 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 	syncing := false
 	err = sp.Deliver(ctx, chunk, syncing)
 	if err != nil {
-		log.Warn("ERROR in handleRetrieveRequestMsg", "err", err)
+		log.Error("sp.Deliver errored", "err", err)
 	}
 	osp.LogFields(olog.Bool("delivered", true))
 
