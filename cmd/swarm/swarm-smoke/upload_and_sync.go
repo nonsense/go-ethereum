@@ -163,7 +163,7 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 	wg.Wait()
 
 	for k, v := range bzzAddrs {
-		log.Debug("bzzAddr", "bzz", v, "host", k)
+		log.Trace("bzzAddr", "bzz", v, "host", k)
 	}
 
 	for i := range addrs {
@@ -191,7 +191,7 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 		if allHostChunks[maxProxHost][i] == '0' {
 			log.Error("chunk not found at max prox host", "ref", addrs[i], "host", maxProxHost, "bzzAddr", bzzAddrs[maxProxHost])
 		} else {
-			log.Debug("chunk present at max prox host", "ref", addrs[i], "host", maxProxHost, "bzzAddr", bzzAddrs[maxProxHost])
+			log.Trace("chunk present at max prox host", "ref", addrs[i], "host", maxProxHost, "bzzAddr", bzzAddrs[maxProxHost])
 		}
 
 		// if chunk found at less than 2 hosts

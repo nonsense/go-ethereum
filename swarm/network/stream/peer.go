@@ -28,10 +28,8 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/log"
 	pq "github.com/ethereum/go-ethereum/swarm/network/priorityqueue"
 	"github.com/ethereum/go-ethereum/swarm/network/stream/intervals"
-	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	"github.com/ethereum/go-ethereum/swarm/state"
 	"github.com/ethereum/go-ethereum/swarm/storage"
-	opentracing "github.com/opentracing/opentracing-go"
 )
 
 type notFoundError struct {
@@ -110,13 +108,6 @@ func (p *Peer) Deliver(ctx context.Context, chunk storage.Chunk, syncing bool) e
 
 // SendOfferedHashes sends OfferedHashesMsg protocol msg
 func (p *Peer) SendOfferedHashes(s *server, f, t uint64) error {
-	var sp opentracing.Span
-	ctx, sp := spancontext.StartSpan(
-		context.TODO(),
-		"send.offered.hashes",
-	)
-	defer sp.Finish()
-
 	defer metrics.GetOrRegisterResettingTimer("send.offered.hashes", nil).UpdateSince(time.Now())
 
 	hashes, from, to, proof, err := s.setNextBatch(f, t)
@@ -142,7 +133,7 @@ func (p *Peer) SendOfferedHashes(s *server, f, t uint64) error {
 		Stream:        s.stream,
 	}
 	log.Trace("Swarm syncer offer batch", "peer", p.ID(), "stream", s.stream, "len", len(hashes), "from", from, "to", to)
-	return p.Send(ctx, msg)
+	return p.Send(context.TODO(), msg)
 }
 
 func (p *Peer) getServer(s Stream) (*server, error) {

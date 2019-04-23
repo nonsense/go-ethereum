@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/network/timeouts"
 	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	"github.com/ethereum/go-ethereum/swarm/storage"
+	opentracing "github.com/opentracing/opentracing-go"
 	olog "github.com/opentracing/opentracing-go/log"
 )
 
@@ -71,7 +72,7 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 		ctx,
 		"handle.retrieve.request")
 
-	osp.LogFields(olog.String("ref", req.Addr.String()))
+	//osp.LogFields(olog.String("ref", req.Addr.String()))
 
 	defer osp.Finish()
 
@@ -173,11 +174,52 @@ func (d *Delivery) Close() {
 
 // FindPeer is returning the closest peer from Kademlia that a chunk
 // request hasn't already been sent to
-func (d *Delivery) FindPeer(req *storage.Request) (*Peer, error) {
+func (d *Delivery) FindPeer(ctx context.Context, req *storage.Request) (*Peer, error) {
 	var sp *Peer
 	var err error
 
+	osp, _ := ctx.Value("remote.fetchh").(opentracing.Span)
+
 	depth := d.kad.NeighbourhoodDepth()
+
+	originPo := -1
+	d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
+		id := p.ID()
+
+		// get po between chunk and origin
+		if req.Origin.String() == id.String() {
+			originPo = po
+			return false
+		}
+
+		return true
+	})
+
+	if osp != nil {
+		osp.LogFields(olog.Int("originPo", originPo))
+		osp.LogFields(olog.Int("depth", depth))
+	}
+
+	selectedPeerPo := -1
+
+	myPo := chunk.Proximity(req.Addr, d.kad.BaseAddr())
+
+	if osp != nil {
+		osp.LogFields(olog.Int("myPo", myPo))
+	}
+
+	skipped := 0
+
+	// do not forward requests if origin proximity is bigger than our node's proximity
+	// this means that origin is closer to the chunk
+	// 6 > 7
+	if originPo > myPo {
+		return nil, errors.New("not forwarding request, origin node is closer to chunk than this node")
+	}
+
+	/// origin (made the request)
+	/// my po (this node)
+	/// select peer po (kademlia suggestion)
 
 	d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
 		id := p.ID()
@@ -194,25 +236,71 @@ func (d *Delivery) FindPeer(req *storage.Request) (*Peer, error) {
 
 		// skip peers that we have already tried
 		if req.SkipPeer(id.String()) {
+			skipped++
 			log.Trace("findpeer skip peer", "peer", id, "ref", req.Addr.String())
 			return true
 		}
 
-		// if origin is farther away from req.Addr and origin is not in our depth
-		prox := chunk.Proximity(req.Addr, d.kad.BaseAddr())
-		// proximity between the req.Addr and our base addr
-		if po < depth && prox >= depth {
-			log.Trace("findpeer skip peer because depth", "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+		if myPo < depth { //  chunk is NOT within the neighbourhood
+			if po <= myPo { // always choose a peer strictly closer to chunk than us
+				log.Trace("findpeer1a", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+				return false
+			} else {
+				log.Trace("findpeer1b", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+			}
+		} else { // chunk IS WITHIN neighbourhood
+			if po < depth { // do not select peer outside the neighbourhood. But allows peers further from the chunk than us
+				log.Trace("findpeer2a", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+				return false
+			} else if po <= originPo { // avoid loop in neighbourhood, so not forward when a request comes from the neighbourhood
+				log.Trace("findpeer2b", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+				return false
+			} else {
+				log.Trace("findpeer2c", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+			}
+		}
 
-			err = fmt.Errorf("not going outside of depth; ref=%s po=%v depth=%v prox=%v", req.Addr.String(), po, depth, prox)
+		// if selected peer is not in the depth (2nd condition; if depth <= po, then peer is in nearest neighbourhood)
+		// and they have a lower po than ours, return error
+		if po < myPo && depth > po {
+			log.Trace("findpeer4 skip peer because origin was closer", "originpo", originPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+
+			err = fmt.Errorf("not asking peers further away from origin; ref=%s originpo=%v po=%v depth=%v myPo=%v", req.Addr.String(), originPo, po, depth, myPo)
+			return false
+		}
+
+		// if chunk falls in our nearest neighbourhood (1st condition), but suggested peer is not in
+		// the nearest neighbourhood (2nd condition), don't forward the request to suggested peer
+		if depth <= myPo && depth > po {
+			log.Trace("findpeer5 skip peer because depth", "originpo", originPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+
+			err = fmt.Errorf("not going outside of depth; ref=%s originpo=%v po=%v depth=%v myPo=%v", req.Addr.String(), originPo, po, depth, myPo)
+			return false
+		}
+
+		// compare to MinBinSize == 2
+		if skipped >= 2 {
+			log.Trace("findpeer6 already skipped MinBinSize legit peers, no point continuing the search", "skipped", skipped)
+
+			err = fmt.Errorf("skipped MinBinSize legit peers, can't find chunk")
 			return false
 		}
 
 		sp = d.getPeer(id)
 
+		if sp != nil {
+			selectedPeerPo = po
+		}
+
 		// sp is nil, when we encounter a peer that is not registered for delivery, i.e. doesn't support the `stream` protocol
-		return sp == nil
+		continueIterating := (sp == nil)
+
+		return continueIterating
 	})
+
+	if osp != nil {
+		osp.LogFields(olog.Int("selectedPeerPo", selectedPeerPo))
+	}
 
 	if err != nil {
 		return nil, err
@@ -229,7 +317,7 @@ func (d *Delivery) FindPeer(req *storage.Request) (*Peer, error) {
 func (d *Delivery) RequestFromPeers(ctx context.Context, req *storage.Request, localID enode.ID) (*enode.ID, error) {
 	metrics.GetOrRegisterCounter("delivery.requestfrompeers", nil).Inc(1)
 
-	sp, err := d.FindPeer(req)
+	sp, err := d.FindPeer(ctx, req)
 	if err != nil {
 		log.Trace(err.Error())
 		return nil, err

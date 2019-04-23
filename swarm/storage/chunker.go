@@ -580,10 +580,10 @@ var errWhence = errors.New("Seek: invalid whence")
 var errOffset = errors.New("Seek: invalid offset")
 
 func (r *LazyChunkReader) Seek(offset int64, whence int) (int64, error) {
-	cctx, sp := spancontext.StartSpan(
-		r.ctx,
-		"lcr.seek")
-	defer sp.Finish()
+	//cctx, sp := spancontext.StartSpan(
+	//r.ctx,
+	//"lcr.seek")
+	//defer sp.Finish()
 
 	log.Debug("lazychunkreader.seek", "key", r.addr, "offset", offset)
 	switch whence {
@@ -596,7 +596,7 @@ func (r *LazyChunkReader) Seek(offset int64, whence int) (int64, error) {
 	case 2:
 
 		if r.chunkData == nil { //seek from the end requires rootchunk for size. call Size first
-			_, err := r.Size(cctx, nil)
+			_, err := r.Size(r.ctx, nil)
 			if err != nil {
 				return 0, fmt.Errorf("can't get size: %v", err)
 			}
