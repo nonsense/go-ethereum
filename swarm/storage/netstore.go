@@ -34,9 +34,7 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// maximum number of forwarded requests (hops), to make sure requests are not
-// forwarded forever in peer loops
-const maxHopCount uint8 = 17
+var hopcountHistogram = metrics.GetOrRegisterResettingTimer("hopcount", nil)
 
 // FetcherItem are stored in fetchers map and signal to all interested parties if a given chunk is delivered
 // the mutex controls who closes the channel, and make sure we close the channel only once
@@ -149,9 +147,8 @@ func (n *NetStore) Get(ctx context.Context, mode chunk.ModeGet, req *Request) (C
 			log.Error("localstore get error", "err", err)
 		}
 
-		if req.HopCount >= maxHopCount {
-			return nil, fmt.Errorf("reach %v hop counts for ref=%s", maxHopCount, fmt.Sprintf("%x", req.HopCount))
-		}
+		// keep track of hopCount for informational purposes
+		hopcountHistogram.Update(time.Duration(req.HopCount))
 
 		log.Trace("netstore.chunk-not-in-localstore", "ref", ref.String(), "hopCount", req.HopCount)
 
@@ -222,14 +219,16 @@ func (n *NetStore) RemoteFetch(ctx context.Context, req *Request, fi *FetcherIte
 		osp.LogFields(olog.String("ref", ref.String()))
 
 		log.Trace("remote.fetch", "ref", ref)
-		currentPeer, err := n.RemoteGet(innerCtx, req, n.localID)
+
+		nctx := context.WithValue(innerCtx, "remote.fetchh", osp)
+		currentPeer, err := n.RemoteGet(nctx, req, n.localID)
 		if err != nil {
 			log.Error(err.Error(), "ref", ref)
 			osp.LogFields(olog.String("err", err.Error()))
 			osp.Finish()
 			return err
 		}
-		osp.LogFields(olog.String("peer", currentPeer.String()))
+		//osp.LogFields(olog.String("peer", currentPeer.String()))
 
 		// add peer to the set of peers to skip from now
 		log.Trace("remote.fetch, adding peer to skip", "ref", ref, "peer", currentPeer.String())
