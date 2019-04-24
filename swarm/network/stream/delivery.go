@@ -245,7 +245,7 @@ func (d *Delivery) FindPeer(ctx context.Context, req *storage.Request) (*Peer, e
 		}
 
 		// make sure we don't forward a request, when it is coming from our nearest neighbourhood
-		if depth <= po && po <= myPo && po <= originPo {
+		if po <= myPo && po <= originPo {
 			log.Trace("not forwarding a request in nearest neighbourhood", "originpo", originPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
 
 			err = fmt.Errorf("not forwarding a request in nearest neighbourhood; ref=%s po=%v depth=%v myPo=%v", req.Addr.String(), po, depth, myPo)
