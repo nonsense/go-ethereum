@@ -32,6 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	"github.com/ethereum/go-ethereum/swarm/testutil"
+	"github.com/thedevsaddam/gojsonq"
 
 	cli "gopkg.in/urfave/cli.v1"
 )
@@ -90,6 +91,7 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 
 	var allHostChunksMu sync.Mutex
 	var allHostChunks []string
+	bzzAddrs := map[string]string{}
 
 	for _, host := range hosts {
 		host := host
@@ -117,8 +119,24 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 				return
 			}
 
+			var adminNodeInfo string
+			err = rpcClient.Call(&adminNodeInfo, "admin_nodeInfo")
+			if err != nil {
+				log.Error("error calling rpc client", "err", err, "host", httpHost)
+				hasErr = true
+				return
+			}
+
+			jq := gojsonq.New().FromString(adminNodeInfo)
+			nodeId := jq.Find("result.id")
+
+			if jq.Error() != nil {
+				log.Error("jq error", "err", jq.Errors())
+			}
+
 			allHostChunksMu.Lock()
 			allHostChunks = append(allHostChunks, hostChunks)
+			bzzAddrs[host] = nodeId.(string)
 			allHostChunksMu.Unlock()
 
 			yes, no := 0, 0
@@ -146,6 +164,10 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 	}
 
 	wg.Wait()
+
+	for k, v := range bzzAddrs {
+		log.Debug("bzzAddr", "bzz", v, "host", k)
+	}
 
 	for i := range addrs {
 		var foundAt int
