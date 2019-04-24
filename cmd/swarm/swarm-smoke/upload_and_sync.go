@@ -19,10 +19,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,9 +32,9 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/swarm/chunk"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	"github.com/ethereum/go-ethereum/swarm/testutil"
-	"github.com/thedevsaddam/gojsonq"
 
 	cli "gopkg.in/urfave/cli.v1"
 )
@@ -90,7 +92,7 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 	wg.Add(len(hosts))
 
 	var allHostChunksMu sync.Mutex
-	var allHostChunks []string
+	allHostChunks := map[string]string{}
 	bzzAddrs := map[string]string{}
 
 	for _, host := range hosts {
@@ -119,24 +121,27 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 				return
 			}
 
-			var adminNodeInfo string
-			err = rpcClient.Call(&adminNodeInfo, "admin_nodeInfo")
+			//var nodeInfo p2p.NodeInfo
+			//err = rpcClient.Call(&nodeInfo, "admin_nodeInfo")
+			//if err != nil {
+			//log.Error("error calling rpc client", "err", err, "host", httpHost)
+			//hasErr = true
+			//return
+			//}
+
+			var hive string
+			err = rpcClient.Call(&hive, "bzz_hive")
 			if err != nil {
 				log.Error("error calling rpc client", "err", err, "host", httpHost)
 				hasErr = true
 				return
 			}
 
-			jq := gojsonq.New().FromString(adminNodeInfo)
-			nodeId := jq.Find("result.id")
-
-			if jq.Error() != nil {
-				log.Error("jq error", "err", jq.Errors())
-			}
+			bzzAddr := strings.Split(strings.Split(hive, "\n")[3], " ")[10]
 
 			allHostChunksMu.Lock()
-			allHostChunks = append(allHostChunks, hostChunks)
-			bzzAddrs[host] = nodeId.(string)
+			allHostChunks[host] = hostChunks
+			bzzAddrs[host] = bzzAddr
 			allHostChunksMu.Unlock()
 
 			yes, no := 0, 0
@@ -169,12 +174,34 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 		log.Debug("bzzAddr", "bzz", v, "host", k)
 	}
 
+	//chunkMaxProxHost := map[string]string{}
 	for i := range addrs {
 		var foundAt int
-		for j := range allHostChunks {
-			if allHostChunks[j][i] == '1' {
+		maxProx := -1
+		var maxProxHost string
+		for host := range allHostChunks {
+			if allHostChunks[host][i] == '1' {
 				foundAt++
 			}
+
+			ba, err := hex.DecodeString(bzzAddrs[host])
+			if err != nil {
+				panic(err)
+			}
+
+			// calculate the host closest to any chunk
+			prox := chunk.Proximity(addrs[i], ba)
+			if prox > maxProx {
+				maxProx = prox
+				maxProxHost = host
+			}
+		}
+
+		//chunkMaxProxHost[hex.EncodeToString(addrs[i])] = maxProxHost
+		if allHostChunks[maxProxHost][i] == '0' {
+			log.Error("chunk not found at max prox host", "ref", addrs[i], "host", maxProxHost, "bzzAddr", bzzAddrs[maxProxHost])
+		} else {
+			log.Debug("chunk present at max prox host", "ref", addrs[i], "host", maxProxHost, "bzzAddr", bzzAddrs[maxProxHost])
 		}
 		// if chunk found at less than 2 hosts
 		if foundAt < 2 {

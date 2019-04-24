@@ -521,6 +521,12 @@
 			"revisionTime": "2018-11-28T10:09:59Z"
 		},
 		{
+			"checksumSHA1": "4TpcrpUCnYimnya2mwCJcRMKHUc=",
+			"path": "github.com/thedevsaddam/gojsonq",
+			"revision": "352ba8e918c5ca9bb73d4e920d508c43af53f538",
+			"revisionTime": "2019-04-04T14:09:32Z"
+		},
+		{
 			"checksumSHA1": "SsMMqb3xn7hg1ZX5ugwZz5rzpx0=",
 			"path": "github.com/tyler-smith/go-bip39",
 			"revision": "dbb3b84ba2ef14e894f5e33d6c6e43641e665738",
