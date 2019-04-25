@@ -212,9 +212,14 @@ func (d *Delivery) FindPeer(ctx context.Context, req *storage.Request) (*Peer, e
 
 	// do not forward requests if origin proximity is bigger than our node's proximity
 	// this means that origin is closer to the chunk
+	// 6 > 7
 	if originPo > myPo {
 		return nil, errors.New("not forwarding request, origin node is closer to chunk than this node")
 	}
+
+	/// origin (made the request)
+	/// my po (this node)
+	/// select peer po (kademlia suggestion)
 
 	d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int) bool {
 		id := p.ID()
@@ -236,13 +241,6 @@ func (d *Delivery) FindPeer(ctx context.Context, req *storage.Request) (*Peer, e
 			return true
 		}
 
-		// make sure we don't forward a request, when it is coming from our nearest neighbourhood
-		//if po <= myPo && po <= originPo {
-		//log.Trace("not forwarding a request in nearest neighbourhood", "originpo", originPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
-
-		//err = fmt.Errorf("not forwarding a request in nearest neighbourhood; ref=%s originpo=%v po=%v depth=%v myPo=%v", req.Addr.String(), originPo, po, depth, myPo)
-		//return false
-		//}
 		if myPo < depth { //  chunk is NOT within the neighbourhood
 			if po <= myPo { // always choose a peer strictly closer to chunk than us
 				log.Trace("findpeer1a", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
@@ -254,8 +252,11 @@ func (d *Delivery) FindPeer(ctx context.Context, req *storage.Request) (*Peer, e
 			if po < depth { // do not select  peer outside the neighbourhood. But allows peers futher from the chunk then us
 				log.Trace("findpeer2a", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
 				return false
-			} else {
+			} else if po <= originPo { // avoid loop in neighbourhood, so not forward when a request comes from the neighbourhood
 				log.Trace("findpeer2b", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
+				return false
+			} else {
+				log.Trace("findpeer2c", "originpo", originPo, "mypo", myPo, "po", po, "depth", depth, "peer", id, "ref", req.Addr.String())
 			}
 		}
 
