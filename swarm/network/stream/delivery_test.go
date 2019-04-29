@@ -153,7 +153,7 @@ func TestFindPeer(t *testing.T) {
 	to.On(peer)
 	r := NewRegistry(addr.ID(), delivery, nil, nil, nil, nil)
 	sp := &Peer{
-		Peer:     protocolsPeer,
+		BzzPeer:  &network.BzzPeer{Peer: protocolsPeer, BzzAddr: addr},
 		streamer: r,
 	}
 	r.setPeer(sp)
@@ -188,7 +188,7 @@ func TestFindPeerWithLightNode(t *testing.T) {
 	to.On(peer)
 	r := NewRegistry(addr.ID(), delivery, nil, nil, nil, nil)
 	sp := &Peer{
-		Peer:     protocolsPeer,
+		BzzPeer:  &network.BzzPeer{Peer: protocolsPeer, BzzAddr: addr},
 		streamer: r,
 	}
 	r.setPeer(sp)

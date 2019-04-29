@@ -91,9 +91,9 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 	var wg sync.WaitGroup
 	wg.Add(len(hosts))
 
-	var allHostChunksMu sync.Mutex
-	allHostChunks := map[string]string{}
-	bzzAddrs := map[string]string{}
+	var mu sync.Mutex                    // mutex protecting the allHostsChunks and bzzAddrs maps
+	allHostChunks := map[string]string{} // host->bitvector of presence for chunks
+	bzzAddrs := map[string]string{}      // host->bzzAddr
 
 	for _, host := range hosts {
 		host := host
@@ -103,6 +103,7 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
+
 			rpcClient, err := rpc.DialContext(ctx, httpHost)
 			if rpcClient != nil {
 				defer rpcClient.Close()
@@ -113,28 +114,24 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 				return
 			}
 
-			var hostChunks string
-			err = rpcClient.Call(&hostChunks, "bzz_has", addrs)
+			hostChunks, err := getChunksBitVectorFromHost(rpcClient, addrs)
 			if err != nil {
-				log.Error("error calling rpc client", "err", err, "host", httpHost)
+				log.Error("error getting chunks bit vector from host", "err", err, "host", httpHost)
 				hasErr = true
 				return
 			}
 
-			var hive string
-			err = rpcClient.Call(&hive, "bzz_hive")
+			bzzAddr, err := getBzzAddrFromHost(rpcClient)
 			if err != nil {
-				log.Error("error calling rpc client", "err", err, "host", httpHost)
+				log.Error("error getting bzz addrs from host", "err", err, "host", httpHost)
 				hasErr = true
 				return
 			}
 
-			bzzAddr := strings.Split(strings.Split(hive, "\n")[3], " ")[10]
-
-			allHostChunksMu.Lock()
+			mu.Lock()
 			allHostChunks[host] = hostChunks
 			bzzAddrs[host] = bzzAddr
-			allHostChunksMu.Unlock()
+			mu.Unlock()
 
 			yes, no := 0, 0
 			for _, val := range hostChunks {
@@ -162,6 +159,57 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 
 	wg.Wait()
 
+	checkChunksVsMostProxHosts(addrs, allHostChunks, bzzAddrs)
+
+	if !hasErr && submitMetrics {
+		// remove the chunks stored on the uploader node
+		globalYes -= len(addrs)
+
+		metrics.GetOrRegisterCounter("deployment.chunks.yes", nil).Inc(int64(globalYes))
+		metrics.GetOrRegisterCounter("deployment.chunks.no", nil).Inc(int64(globalNo))
+		metrics.GetOrRegisterCounter("deployment.chunks.refs", nil).Inc(int64(len(addrs)))
+	}
+
+	return nil
+}
+
+// getChunksBitVectorFromHost returns a bit vector of presence for a given slice of chunks from a given host
+func getChunksBitVectorFromHost(client *rpc.Client, addrs []storage.Address) (string, error) {
+	var hostChunks string
+
+	err := client.Call(&hostChunks, "bzz_has", addrs)
+	if err != nil {
+		return "", err
+	}
+
+	return hostChunks, nil
+}
+
+// getBzzAddrFromHost returns the bzzAddr for a given host
+func getBzzAddrFromHost(client *rpc.Client) (string, error) {
+	var hive string
+
+	err := client.Call(&hive, "bzz_hive")
+	if err != nil {
+		return "", err
+	}
+
+	// we make an ugly assumption about the output format of the hive.String() method
+	// ideally we should replace this with an API call that returns the bzz addr for a given host,
+	// but this also works for now (provided we don't change the hive.String() method, which we haven't in some time
+	return strings.Split(strings.Split(hive, "\n")[3], " ")[10], nil
+}
+
+// checkChunksVsMostProxHosts is checking:
+// 1. whether a chunk has been found at less than 2 hosts. Considering our NN size, this should not happen.
+// 2. if a chunk is not found at its closest node. This should also not happen.
+// Together with the --only-upload flag, we could run this smoke test and make sure that our syncing
+// functionality is correct (without even trying to retrieve the content).
+//
+// addrs - a slice with all uploaded chunk refs
+// allHostChunks - host->bit vector, showing what chunks are present on what hosts
+// bzzAddrs - host->bzz address, used when determining the most proximate host for a given chunk
+func checkChunksVsMostProxHosts(addrs []storage.Address, allHostChunks map[string]string, bzzAddrs map[string]string) {
 	for k, v := range bzzAddrs {
 		log.Trace("bzzAddr", "bzz", v, "host", k)
 	}
@@ -199,17 +247,6 @@ func trackChunks(testData []byte, submitMetrics bool) error {
 			log.Error("chunk found at less than two hosts", "foundAt", foundAt, "ref", addrs[i])
 		}
 	}
-
-	if !hasErr && submitMetrics {
-		// remove the chunks stored on the uploader node
-		globalYes -= len(addrs)
-
-		metrics.GetOrRegisterCounter("deployment.chunks.yes", nil).Inc(int64(globalYes))
-		metrics.GetOrRegisterCounter("deployment.chunks.no", nil).Inc(int64(globalNo))
-		metrics.GetOrRegisterCounter("deployment.chunks.refs", nil).Inc(int64(len(addrs)))
-	}
-
-	return nil
 }
 
 func getAllRefs(testData []byte) (storage.AddressCollection, error) {
