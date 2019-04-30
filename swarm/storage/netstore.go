@@ -80,8 +80,7 @@ type NetStore struct {
 	RemoteGet    RemoteGetFunc
 }
 
-// NewNetStore creates a new NetStore object using the given local store. newFetchFunc is a
-// constructor function that can create a fetch function for a specific chunk address.
+// NewNetStore creates a new NetStore using the provided chunk.Store and localID of the node.
 func NewNetStore(store chunk.Store, localID enode.ID) *NetStore {
 	return &NetStore{
 		Store:   store,
