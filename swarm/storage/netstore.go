@@ -47,7 +47,7 @@ type FetcherItem struct {
 	once sync.Once
 
 	CreatedAt time.Time // timestamp when the fetcher was created, used for metrics measuring lifetime of fetchers
-	CreatedBy string    // who created the fethcer - "request" or "syncing", used for metrics measuring lifecycle of fetchers
+	CreatedBy string    // who created the fetcher - "request" or "syncing", used for metrics measuring lifecycle of fetchers
 
 	RequestedBySyncer bool // whether we have issued at least once a request through Offered/Wanted hashes flow
 }
