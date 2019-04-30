@@ -24,6 +24,9 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/network/timeouts"
 )
 
+// Request encapsulates all the necessary arguments when making a request to NetStore.
+// These could have also been added as part of the interface of NetStore.Get, but a request struct seemed
+// like a better option
 type Request struct {
 	Addr        Address  // chunk address
 	Origin      enode.ID // who is sending us that request? we compare Origin to the suggested peer from RequestFromPeers
