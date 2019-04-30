@@ -286,14 +286,17 @@ func (d *Delivery) FindPeer(ctx context.Context, req *storage.Request) (*Peer, e
 
 		sp = d.getPeer(id)
 
+		// sp could be nil, if we encountered a peer that is not registered for delivery, i.e. doesn't support the `stream` protocol
+		// if sp is not nil, then we have selected the next peer and we stop iterating
+		// if sp is nil, we continue iterating
 		if sp != nil {
 			selectedPeerPo = po
+
+			return false
 		}
 
-		// sp is nil, when we encounter a peer that is not registered for delivery, i.e. doesn't support the `stream` protocol
-		continueIterating := (sp == nil)
-
-		return continueIterating
+		// continue iterating
+		return true
 	})
 
 	if osp != nil {
