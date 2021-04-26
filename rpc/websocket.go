@@ -18,7 +18,6 @@ package rpc
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -223,8 +222,8 @@ func wsClientHeaders(endpoint, origin string) (string, http.Header, error) {
 		header.Add("origin", origin)
 	}
 	if endpointURL.User != nil {
-		b64auth := base64.StdEncoding.EncodeToString([]byte(endpointURL.User.String()))
-		header.Add("authorization", "Basic "+b64auth)
+		token := endpointURL.User.String()
+		header.Add("Authorization", "Bearer "+token)
 		endpointURL.User = nil
 	}
 	return endpointURL.String(), header, nil
